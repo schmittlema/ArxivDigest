@@ -48,7 +48,7 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=8):
             for line in json_items if "relevancy score" in line.lower()]
     except Exception as e:
         pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
-        print(e)
+        print(e) #linh edit, test
         raise RuntimeError("failed")
     pprint.pprint(score_items)
     scores = []
