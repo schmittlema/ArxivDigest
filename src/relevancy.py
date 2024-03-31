@@ -46,8 +46,10 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=8):
         score_items = [
             json.loads(re.sub(pattern, "", line))
             for line in json_items if "relevancy score" in line.lower()]
-    except Exception:
+    except Exception as e:
         pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
+        print(e)
+        #raise e
         raise RuntimeError("failed")
     pprint.pprint(score_items)
     scores = []
@@ -136,7 +138,7 @@ def generate_relevance_score(
     return ans_data, hallucination
 
 def run_all_day_paper(
-    query={"interest":"", "subjects":["Computation and Language", "Artificial Intelligence"]},
+    query={"interest":"Computer Science", "subjects":["Machine Learning", "Computation and Language", "Artificial Intelligence"]},
     date=None,
     data_dir="../data",
     model_name="gpt-3.5-turbo-16k",
