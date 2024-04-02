@@ -31,12 +31,22 @@ def encode_prompt(query, prompt_papers):
         prompt += f"{idx + 1}. Authors: {authors}\n"
         prompt += f"{idx + 1}. Abstract: {abstract}\n"
     prompt += f"\n Generate response:\n1."
-    print(prompt)
+    #print(prompt)
     return prompt
+
+
+def is_json(myjson):
+    try:
+        json.loads(myjson)
+    except ValueError as e:
+        return False
+    return True
 
 
 def post_process_chat_gpt_response(paper_data, response, threshold_score=8):
     selected_data = []
+    print("HERE")
+    print(response['message']['content'])
     if response is None:
         return []
     json_items = response['message']['content'].replace("\n\n", "\n").split("\n")
@@ -45,12 +55,16 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=8):
     try:
         score_items = [
             json.loads(re.sub(pattern, "", line))
-            for line in json_items if "relevancy score" in line.lower()]
+            for line in json_items if (is_json(line) and "relevancy score" in line.lower())]
     except Exception as e:
-        pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
-        print(e) #linh edit, test
+        #pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
+        try:
+            score_items = score_items[:-1]
+        except Exception:
+            score_items = []
+        print(e)
         raise RuntimeError("failed")
-    pprint.pprint(score_items)
+    #pprint.pprint(score_items)
     scores = []
     for item in score_items:
         temp = item["Relevancy score"]
