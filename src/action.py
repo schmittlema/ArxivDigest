@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 import openai
 from relevancy import generate_relevance_score, process_subject_fields
 from download_new_papers import get_papers
+from datetime import date
+
 
 
 # Hackathon quality code. Don't judge too harshly.
@@ -247,7 +249,7 @@ def generate_body(topic, categories, interest, threshold):
             papers,
             query={"interest": interest},
             threshold_score=threshold,
-            num_paper_in_prompt=16,
+            num_paper_in_prompt=20,
         )
         body = "<br><br>".join(
             [
@@ -273,6 +275,10 @@ def generate_body(topic, categories, interest, threshold):
         )
     return body
 
+def get_date():
+    today = date.today()
+    formatted_date = today.strftime("%d%m%Y")
+    return formatted_date
 
 if __name__ == "__main__":
     # Load the .env file.
@@ -296,7 +302,8 @@ if __name__ == "__main__":
     threshold = config["threshold"]
     interest = config["interest"]
     body = generate_body(topic, categories, interest, threshold)
-    with open("digest.html", "w") as f:
+    today_date = get_date()
+    with open(f"digest_{today_date}.html", "w") as f:
         f.write(body)
     if os.environ.get("SENDGRID_API_KEY", None):
         sg = SendGridAPIClient(api_key=os.environ.get("SENDGRID_API_KEY"))

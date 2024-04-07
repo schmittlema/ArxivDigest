@@ -106,8 +106,8 @@ def generate_relevance_score(
     all_papers,
     query,
     model_name="gpt-3.5-turbo-16k",
-    threshold_score=8,
-    num_paper_in_prompt=4,
+    threshold_score=7,
+    num_paper_in_prompt=8,
     temperature=0.4,
     top_p=1.0,
     sorting=True
