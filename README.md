@@ -1,6 +1,7 @@
 <p align="center"><img src="./readme_images/banner.png" width=500 /></p>
 
 **ArXiv Digest and Personalized Recommendations using Large Language Models.**
+
 (Note: This is an adjusted repo to match my needs. For original repo please refer to AutoLLM that I forked from)
 
 This repo aims to provide a better daily digest for newly published arXiv papers based on your own research interests and natural-language descriptions, using relevancy ratings from GPT.
