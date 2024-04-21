@@ -7,7 +7,7 @@ import json
 import datetime
 import pytz
 
-
+#Linh - add new def crawl_html_version(html_link) here
 def _download_new_papers(field_abbr):
     NEW_SUB_URL = f'https://arxiv.org/list/{field_abbr}/new'  # https://arxiv.org/list/cs/new
     page = urllib.request.urlopen(NEW_SUB_URL)
@@ -21,6 +21,7 @@ def _download_new_papers(field_abbr):
     dt_list = content.dl.find_all("dt")
     dd_list = content.dl.find_all("dd")
     arxiv_base = "https://arxiv.org/abs/"
+    arxiv_html = "https://arxiv.org/html/"
 
     assert len(dt_list) == len(dd_list)
     new_paper_list = []
@@ -29,6 +30,7 @@ def _download_new_papers(field_abbr):
         paper_number = dt_list[i].text.strip().split(" ")[2].split(":")[-1]
         paper['main_page'] = arxiv_base + paper_number
         paper['pdf'] = arxiv_base.replace('abs', 'pdf') + paper_number
+        paper['html'] = arxiv_html + paper_number + "v1"
 
         paper['title'] = dd_list[i].find("div", {"class": "list-title mathjax"}).text.replace("Title: ", "").strip()
         paper['authors'] = dd_list[i].find("div", {"class": "list-authors"}).text \
