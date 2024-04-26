@@ -1,5 +1,7 @@
 # encoding: utf-8
 import os
+from urllib.error import HTTPError
+
 import tqdm
 from bs4 import BeautifulSoup as bs
 import urllib.request
@@ -8,6 +10,21 @@ import datetime
 import pytz
 
 #Linh - add new def crawl_html_version(html_link) here
+def crawl_html_version(html_link):
+    main_content = []
+    try:
+        html = urllib.request.urlopen(html_link)
+    except HTTPError as e:
+        return ["None"]
+    soup = bs(html)
+    content = soup.find('div', attrs={'class': 'ltx_page_content'})
+    para_list = content.find_all("div", attrs={'class': 'ltx_para'})
+
+    for each in para_list:
+        main_content.append(each.text.strip())
+    return ' '.join(main_content)[:8000]
+    #if len(main_content >)
+    #return ''.join(main_content) if len(main_content) < 20000 else ''.join(main_content[:20000])
 def _download_new_papers(field_abbr):
     NEW_SUB_URL = f'https://arxiv.org/list/{field_abbr}/new'  # https://arxiv.org/list/cs/new
     page = urllib.request.urlopen(NEW_SUB_URL)
@@ -30,13 +47,14 @@ def _download_new_papers(field_abbr):
         paper_number = dt_list[i].text.strip().split(" ")[2].split(":")[-1]
         paper['main_page'] = arxiv_base + paper_number
         paper['pdf'] = arxiv_base.replace('abs', 'pdf') + paper_number
-        paper['html'] = arxiv_html + paper_number + "v1"
+        #paper['html'] = arxiv_html + paper_number + "v1"
 
         paper['title'] = dd_list[i].find("div", {"class": "list-title mathjax"}).text.replace("Title: ", "").strip()
         paper['authors'] = dd_list[i].find("div", {"class": "list-authors"}).text \
                             .replace("Authors:\n", "").replace("\n", "").strip()
         paper['subjects'] = dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects: ", "").strip()
         paper['abstract'] = dd_list[i].find("p", {"class": "mathjax"}).text.replace("\n", " ").strip()
+        paper['content'] = crawl_html_version(arxiv_html + paper_number + "v1")
         new_paper_list.append(paper)
 
 
@@ -64,3 +82,5 @@ def get_papers(field_abbr, limit=None):
                 return results
             results.append(json.loads(line))
     return results
+
+#crawl_html_version("https://arxiv.org/html/2404.11972v1")

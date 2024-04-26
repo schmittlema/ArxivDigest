@@ -23,15 +23,16 @@ def encode_prompt(query, prompt_papers):
     prompt += query['interest']
 
     for idx, task_dict in enumerate(prompt_papers):
-        (title, authors, abstract) = task_dict["title"], task_dict["authors"], task_dict["abstract"]
+        (title, authors, abstract, content) = task_dict["title"], task_dict["authors"], task_dict["abstract"], task_dict["content"]
         if not title:
             raise
         prompt += f"###\n"
         prompt += f"{idx + 1}. Title: {title}\n"
         prompt += f"{idx + 1}. Authors: {authors}\n"
         prompt += f"{idx + 1}. Abstract: {abstract}\n"
+        prompt += f"{idx + 1}. Content: {content}\n"
     prompt += f"\n Generate response:\n1."
-    print(prompt)
+    #print(prompt)
     return prompt
 
 
@@ -42,18 +43,34 @@ def is_json(myjson):
         return False
     return True
 
-
-def post_process_chat_gpt_response(paper_data, response, threshold_score=8):
+def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
     selected_data = []
     if response is None:
         return []
     json_items = response['message']['content'].replace("\n\n", "\n").split("\n")
     pattern = r"^\d+\. |\\"
     import pprint
+
+    def try_loads(line):
+        try:
+            return json.loads(re.sub(pattern, "", line))
+        except json.JSONDecodeError:
+            return None
+    score_items = []
     try:
-        score_items = [
-            json.loads(re.sub(pattern, "", line))
-            for line in json_items if (is_json(line) and "relevancy score" in line.lower())]
+        # score_items = [
+        #     json.loads(re.sub(pattern, "", line))
+        #     for line in json_items if (is_json(line) and "relevancy score" in line.lower())]
+        for line in json_items:
+            if is_json(line) and "relevancy score" in line.lower():
+                score_items.append(json.loads(re.sub(pattern, "", line)))
+            #elif
+
+        # score_items = [
+        #     loaded_json
+        #     for line in json_items if (is_json(line) and "relevancy score" in line.lower())
+        #     for loaded_json in [try_loads(line)] if loaded_json is not None
+        # ]
     except Exception as e:
         pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
         try:
@@ -105,7 +122,7 @@ def generate_relevance_score(
     query,
     model_name="gpt-3.5-turbo-16k",
     threshold_score=7,
-    num_paper_in_prompt=8,
+    num_paper_in_prompt=1,
     temperature=0.4,
     top_p=1.0,
     sorting=True
@@ -121,7 +138,7 @@ def generate_relevance_score(
         decoding_args = utils.OpenAIDecodingArguments(
             temperature=temperature,
             n=1,
-            max_tokens=128*num_paper_in_prompt, # The response for each paper should be less than 128 tokens. 
+            max_tokens=1024*num_paper_in_prompt, # The response for each paper should be less than 128 tokens.
             top_p=top_p,
         )
         request_start = time.time()
@@ -153,8 +170,8 @@ def run_all_day_paper(
     date=None,
     data_dir="../data",
     model_name="gpt-3.5-turbo-16k",
-    threshold_score=8,
-    num_paper_in_prompt=8,
+    threshold_score=7,
+    num_paper_in_prompt=2,
     temperature=0.4,
     top_p=1.0
 ):

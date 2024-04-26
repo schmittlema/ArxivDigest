@@ -247,7 +247,7 @@ def generate_body(topic, categories, interest, threshold):
             papers,
             query={"interest": interest},
             threshold_score=threshold,
-            num_paper_in_prompt=20,
+            num_paper_in_prompt=2,
         )
         body = "<br><br>".join(
             [

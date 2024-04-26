@@ -81,7 +81,7 @@ def sample(email, topic, physics_topic, categories, interest):
             papers,
             query={"interest": interest},
             threshold_score=0,
-            num_paper_in_prompt=4)
+            num_paper_in_prompt=2)
         return "\n\n".join([paper["summarized_text"] for paper in relevancy])
     else:
         return "\n\n".join(f"Title: {paper['title']}\nAuthors: {paper['authors']}" for paper in papers)
@@ -127,7 +127,7 @@ def test(email, topic, physics_topic, categories, interest, key):
             papers,
             query={"interest": interest},
             threshold_score=7,
-            num_paper_in_prompt=8)
+            num_paper_in_prompt=2)
         body = "<br><br>".join([f'Title: <a href="{paper["main_page"]}">{paper["title"]}</a><br>Authors: {paper["authors"]}<br>Score: {paper["Relevancy score"]}<br>Reason: {paper["Reasons for match"]}' for paper in relevancy])
         if hallucination:
             body = "Warning: the model hallucinated some papers. We have tried to remove them, but the scores may not be accurate.<br><br>" + body
