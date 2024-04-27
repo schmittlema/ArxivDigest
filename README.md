@@ -35,7 +35,7 @@ This repository offers a method to curate a daily digest, sorted by relevance, u
 
 ### Testing it out with Hugging Face:
 
-We provide a demo at [https://huggingface.co/spaces/AutoLLM/ArxivDigest](https://huggingface.co/spaces/AutoLLM/ArxivDigest). Simply enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and then fill in the configuration on the right. Note that we do not store your key.
+We provide a demo at [https://huggingface.co/spaces/linhkid91/ArxivDigest-extra](https://huggingface.co/spaces/AutoLLM/ArxivDigest). Simply enter your [OpenAI API key](https://platform.openai.com/account/api-keys) and then fill in the configuration on the right. Note that we do not store your key.
 
 ![hfexample](./readme_images/hf_example.png)
 
