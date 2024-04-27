@@ -251,7 +251,7 @@ def generate_body(topic, categories, interest, threshold):
         )
         body = "<br><br>".join(
             [
-                f'<b>Title:</b> <a href="{paper["main_page"]}">{paper["title"]}</a><br><b>Authors:</b> {paper["authors"]}<br>'
+                f'<b>Subject: </b>{paper["subjects"]}<br><b>Title:</b> <a href="{paper["main_page"]}">{paper["title"]}</a><br><b>Authors:</b> {paper["authors"]}<br>'
                 f'<b>Score:</b> {paper["Relevancy score"]}<br><b>Reason:</b> {paper["Reasons for match"]}<br>'
                 f'<b>Goal:</b> {paper["Goal"]}<br><b>Data</b>: {paper["Data"]}<br><b>Methodology:</b> {paper["Methodology"]}<br>'
                 f'<b>Experiments & Results</b>: {paper["Experiments & Results"]}<br><b>Git</b>: {paper["Git"]}<br>'

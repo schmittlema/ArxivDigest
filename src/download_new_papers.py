@@ -22,7 +22,7 @@ def crawl_html_version(html_link):
 
     for each in para_list:
         main_content.append(each.text.strip())
-    return ' '.join(main_content)[:8000]
+    return ' '.join(main_content)[:10000]
     #if len(main_content >)
     #return ''.join(main_content) if len(main_content) < 20000 else ''.join(main_content[:20000])
 def _download_new_papers(field_abbr):

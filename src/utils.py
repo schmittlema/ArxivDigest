@@ -25,7 +25,7 @@ if openai_org is not None:
 @dataclasses.dataclass
 class OpenAIDecodingArguments(object):
     #max_tokens: int = 1800
-    max_tokens: int = 4800
+    max_tokens: int = 5400
     temperature: float = 0.2
     top_p: float = 1.0
     n: int = 1

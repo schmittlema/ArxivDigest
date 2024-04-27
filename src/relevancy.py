@@ -39,7 +39,7 @@ def encode_prompt(query, prompt_papers):
 def is_json(myjson):
     try:
         json.loads(myjson)
-    except ValueError as e:
+    except Exception as e:
         return False
     return True
 
@@ -97,7 +97,8 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
         # if the decoding stops due to length, the last example is likely truncated so we discard it
         if scores[idx] < threshold_score:
             continue
-        output_str = "Title: " + paper_data[idx]["title"] + "\n"
+        output_str = "Subject: " + paper_data[idx]["subjects"] + "\n"
+        output_str += "Title: " + paper_data[idx]["title"] + "\n"
         output_str += "Authors: " + paper_data[idx]["authors"] + "\n"
         output_str += "Link: " + paper_data[idx]["main_page"] + "\n"
         for key, value in inst.items():
@@ -166,7 +167,7 @@ def generate_relevance_score(
     return ans_data, hallucination
 
 def run_all_day_paper(
-    query={"interest":"Computer Science", "subjects":["Machine Learning", "Computation and Language", "Artificial Intelligence"]},
+    query={"interest":"Computer Science", "subjects":["Machine Learning", "Computation and Language", "Artificial Intelligence", "Information Retrieval"]},
     date=None,
     data_dir="../data",
     model_name="gpt-3.5-turbo-16k",
