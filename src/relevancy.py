@@ -32,7 +32,6 @@ def encode_prompt(query, prompt_papers):
         prompt += f"{idx + 1}. Abstract: {abstract}\n"
         prompt += f"{idx + 1}. Content: {content}\n"
     prompt += f"\n Generate response:\n1."
-    #print(prompt)
     return prompt
 
 
@@ -135,7 +134,6 @@ def generate_relevance_score(
         prompt_papers = all_papers[id:id+num_paper_in_prompt]
         # only sampling from the seed tasks
         prompt = encode_prompt(query, prompt_papers)
-
         decoding_args = utils.OpenAIDecodingArguments(
             temperature=temperature,
             n=1,

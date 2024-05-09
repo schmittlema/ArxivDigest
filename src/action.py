@@ -222,6 +222,7 @@ category_map = {
 
 
 def generate_body(topic, categories, interest, threshold):
+    f_papers = []
     if topic == "Physics":
         raise RuntimeError("You must choose a physics subtopic.")
     elif topic in physics_topics:
@@ -235,11 +236,13 @@ def generate_body(topic, categories, interest, threshold):
             if category not in category_map[topic]:
                 raise RuntimeError(f"{category} is not a category of {topic}")
         papers = get_papers(abbr)
+
         papers = [
             t
             for t in papers
             if bool(set(process_subject_fields(t["subjects"])) & set(categories))
         ]
+
     else:
         papers = get_papers(abbr)
     if interest:
@@ -249,6 +252,7 @@ def generate_body(topic, categories, interest, threshold):
             threshold_score=threshold,
             num_paper_in_prompt=2,
         )
+
         body = "<br><br>".join(
             [
                 f'<b>Subject: </b>{paper["subjects"]}<br><b>Title:</b> <a href="{paper["main_page"]}">{paper["title"]}</a><br><b>Authors:</b> {paper["authors"]}<br>'

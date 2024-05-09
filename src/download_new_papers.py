@@ -1,5 +1,6 @@
 # encoding: utf-8
 import os
+import re
 from urllib.error import HTTPError
 
 import tqdm
@@ -44,15 +45,17 @@ def _download_new_papers(field_abbr):
     new_paper_list = []
     for i in tqdm.tqdm(range(len(dt_list))):
         paper = {}
-        paper_number = dt_list[i].text.strip().split(" ")[2].split(":")[-1]
+        ahref = dt_list[i].find('a', href = re.compile(r'[/]([a-z]|[A-Z])\w+')).attrs['href']
+        paper_number = ahref.strip().replace("/abs/", "")
+
         paper['main_page'] = arxiv_base + paper_number
         paper['pdf'] = arxiv_base.replace('abs', 'pdf') + paper_number
-        #paper['html'] = arxiv_html + paper_number + "v1"
 
-        paper['title'] = dd_list[i].find("div", {"class": "list-title mathjax"}).text.replace("Title: ", "").strip()
+        paper['title'] = dd_list[i].find("div", {"class": "list-title mathjax"}).text.replace("Title:\n", "").strip()
         paper['authors'] = dd_list[i].find("div", {"class": "list-authors"}).text \
                             .replace("Authors:\n", "").replace("\n", "").strip()
-        paper['subjects'] = dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects: ", "").strip()
+        paper['subjects'] = dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects:\n", "").strip()
+        #print(dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects:\n", "").strip())
         paper['abstract'] = dd_list[i].find("p", {"class": "mathjax"}).text.replace("\n", " ").strip()
         paper['content'] = crawl_html_version(arxiv_html + paper_number + "v1")
         new_paper_list.append(paper)
