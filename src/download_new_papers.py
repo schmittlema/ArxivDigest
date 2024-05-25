@@ -27,8 +27,10 @@ def crawl_html_version(html_link):
     #if len(main_content >)
     #return ''.join(main_content) if len(main_content) < 20000 else ''.join(main_content[:20000])
 def _download_new_papers(field_abbr):
-    NEW_SUB_URL = f'https://arxiv.org/list/{field_abbr}/new'  # https://arxiv.org/list/cs/new
+    NEW_SUB_URL = f'https://arxiv.org/list/{field_abbr}/recent'  # https://arxiv.org/list/cs/new
+    print(NEW_SUB_URL)
     page = urllib.request.urlopen(NEW_SUB_URL)
+
     soup = bs(page)
     content = soup.body.find("div", {'id': 'content'})
 
@@ -56,7 +58,9 @@ def _download_new_papers(field_abbr):
                             .replace("Authors:\n", "").replace("\n", "").strip()
         paper['subjects'] = dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects:\n", "").strip()
         #print(dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects:\n", "").strip())
-        paper['abstract'] = dd_list[i].find("p", {"class": "mathjax"}).text.replace("\n", " ").strip()
+
+        #TODO: edit the abstract part - it is currently moved
+        #paper['abstract'] = dd_list[i].find("p", {"class": "mathjax"}).text.replace("\n", " ").strip()
         paper['content'] = crawl_html_version(arxiv_html + paper_number + "v1")
         new_paper_list.append(paper)
 
