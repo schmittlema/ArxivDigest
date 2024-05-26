@@ -26,6 +26,17 @@ def crawl_html_version(html_link):
     return ' '.join(main_content)[:10000]
     #if len(main_content >)
     #return ''.join(main_content) if len(main_content) < 20000 else ''.join(main_content[:20000])
+
+#Linh - add because cs sub does not have abstract displayed, will revert if it comes back
+def crawl_abstract(html_link):
+    main_content = []
+    try:
+        html = urllib.request.urlopen(html_link)
+    except HTTPError as e:
+        return ["None"]
+    soup = bs(html)
+    content = soup.find('blockquote', attrs={'class': 'abstract'}).text.replace("Abstract:", "").strip()
+    return content
 def _download_new_papers(field_abbr):
     NEW_SUB_URL = f'https://arxiv.org/list/{field_abbr}/recent'  # https://arxiv.org/list/cs/new
     print(NEW_SUB_URL)
@@ -60,7 +71,9 @@ def _download_new_papers(field_abbr):
         #print(dd_list[i].find("div", {"class": "list-subjects"}).text.replace("Subjects:\n", "").strip())
 
         #TODO: edit the abstract part - it is currently moved
+
         #paper['abstract'] = dd_list[i].find("p", {"class": "mathjax"}).text.replace("\n", " ").strip()
+        paper['abstract'] = crawl_abstract( arxiv_base + paper_number)
         paper['content'] = crawl_html_version(arxiv_html + paper_number + "v1")
         new_paper_list.append(paper)
 
