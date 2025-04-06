@@ -8,9 +8,140 @@ from sendgrid.helpers.mail import Mail, Email, To, Content
 import os
 import openai
 import datetime
+import yaml
 from paths import DATA_DIR, DIGEST_DIR
 from model_manager import model_manager, ModelProvider
 from gemini_utils import setup_gemini_api, get_topic_clustering
+
+# Load config file
+def load_config():
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.yaml")
+    try:
+        with open(config_path, 'r') as file:
+            return yaml.safe_load(file)
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return {"threshold": 2}  # Default threshold if config loading fails
+
+config = load_config()
+
+# Helper function to filter papers by threshold
+def filter_papers_by_threshold(papers, threshold):
+    """Filter papers by relevancy score threshold"""
+    print(f"\n===== FILTERING PAPERS =====")
+    print(f"Only showing papers with relevancy score >= {threshold}")
+    print(f"(Change this value in config.yaml if needed)")
+    
+    # Debug the paper scores
+    for i, paper in enumerate(papers):
+        print(f"Paper {i+1} - Title: {paper.get('title', 'No title')}")
+        print(f"   - Score: {paper.get('Relevancy score', 'No score')}")
+        print(f"   - Fields: {list(paper.keys())}")
+    
+    # First extract data from gemini_analysis if it exists and Relevancy score doesn't
+    for paper in papers:
+        if "gemini_analysis" in paper and "Relevancy score" not in paper:
+            print(f"Extracting analysis data for paper: {paper.get('title')}")
+            gemini_data = paper["gemini_analysis"]
+            
+            # Map Gemini analysis fields to expected fields
+            field_mapping = {
+                "relevance_score": "Relevancy score",
+                "relationship_score": "Relevancy score",
+                "paper_relevance": "Relevancy score",
+                "paper's_relationship_to_the_user's_interests": "Relevancy score",
+                "key_innovations": "Key innovations",
+                "critical_analysis": "Critical analysis",
+                "methodology_summary": "Methodology",
+                "technical_significance": "Critical analysis",
+                "related_research": "Related work"
+            }
+            
+            # Copy fields using mapping
+            for gemini_field, expected_field in field_mapping.items():
+                if gemini_field in gemini_data:
+                    paper[expected_field] = gemini_data[gemini_field]
+                    print(f"  - Mapped {gemini_field} to {expected_field}")
+                
+            # If we have no score yet, look for a number in other fields
+            if "Relevancy score" not in paper:
+                # Try to find a relevance score in any field
+                for field, value in gemini_data.items():
+                    if isinstance(value, (int, float)) and 1 <= value <= 10:
+                        paper["Relevancy score"] = value
+                        print(f"  - Found score {value} in field {field}")
+                        break
+                    elif isinstance(value, str) and "score" in field.lower():
+                        try:
+                            # Try to extract a number from the string
+                            import re
+                            numbers = re.findall(r'\d+', value)
+                            if numbers:
+                                score = int(numbers[0])
+                                if 1 <= score <= 10:  # Validate score range
+                                    paper["Relevancy score"] = score
+                                    print(f"  - Extracted score {score} from {field}: {value}")
+                                    break
+                        except:
+                            pass
+            
+            # If still no score, default to threshold to include paper
+            if "Relevancy score" not in paper:
+                paper["Relevancy score"] = threshold
+                print(f"  - Assigned default score {threshold}")
+                
+            # Add some reasonable defaults for missing fields
+            if "Reasons for match" not in paper and "topic_classification" in gemini_data:
+                paper["Reasons for match"] = gemini_data.get("topic_classification", "Not provided")
+                
+            # Set missing fields with default values
+            for field in ["Key innovations", "Critical analysis", "Goal", "Data", "Methodology", 
+                         "Implementation details", "Experiments & Results", "Discussion & Next steps",
+                         "Related work", "Practical applications", "Key takeaways"]:
+                if field not in paper:
+                    paper[field] = "Not available in analysis"
+    
+    # Ensure scores are properly parsed to integers
+    for paper in papers:
+        if "Relevancy score" in paper and not isinstance(paper["Relevancy score"], int):
+            try:
+                if isinstance(paper["Relevancy score"], str) and "/" in paper["Relevancy score"]:
+                    paper["Relevancy score"] = int(paper["Relevancy score"].split("/")[0])
+                else:
+                    paper["Relevancy score"] = int(paper["Relevancy score"])
+            except (ValueError, TypeError):
+                print(f"WARNING: Could not convert score '{paper.get('Relevancy score')}' to integer for paper: {paper.get('title')}")
+                paper["Relevancy score"] = threshold  # Use threshold as default
+    
+    # Make sure all papers have required fields
+    required_fields = [
+        "Relevancy score", "Reasons for match", "Key innovations", "Critical analysis",
+        "Goal", "Data", "Methodology", "Implementation details", "Experiments & Results",
+        "Git", "Discussion & Next steps", "Related work", "Practical applications", 
+        "Key takeaways"
+    ]
+    
+    for paper in papers:
+        # Make sure it has a relevancy score
+        if "Relevancy score" not in paper:
+            paper["Relevancy score"] = threshold
+            print(f"Assigned default threshold score to paper: {paper.get('title')}")
+            
+        # Add missing fields with default values
+        for field in required_fields:
+            if field not in paper:
+                paper[field] = f"Not available in analysis"
+                print(f"Added missing field {field} to paper: {paper.get('title')}")
+    
+    # Now filter papers
+    filtered_papers = [p for p in papers if p.get("Relevancy score", 0) >= threshold]
+    print(f"After filtering: {len(filtered_papers)} papers remain out of {len(papers)}")
+    
+    if len(filtered_papers) == 0 and len(papers) > 0:
+        print("WARNING: No papers passed the threshold filter. Using all papers.")
+        filtered_papers = papers
+        
+    return filtered_papers
 from design_automation import (
     is_design_automation_paper, 
     categorize_design_paper, 
@@ -83,6 +214,15 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
     Returns:
         Path to the HTML file
     """
+    # Debug: Log what fields are available in each paper
+    print(f"Generating HTML report for {len(papers)} papers")
+    for i, paper in enumerate(papers):
+        print(f"Paper {i+1} fields: {list(paper.keys())}")
+        if "Key innovations" in paper:
+            print(f"Paper {i+1} has Key innovations: {paper['Key innovations'][:50]}...")
+        if "Critical analysis" in paper:
+            print(f"Paper {i+1} has Critical analysis: {paper['Critical analysis'][:50]}...")
+    
     # Create a date for the filename (without time)
     date = datetime.datetime.now().strftime("%Y%m%d")
     
@@ -151,6 +291,22 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
         </div>
     """
     
+    # Check if we have any papers
+    if not papers:
+        html += """
+        <div class="paper">
+            <div class="title">No papers found matching your criteria</div>
+            <div class="abstract">
+                <p>No papers met the relevancy threshold criteria. You can:</p>
+                <ul>
+                    <li>Lower the threshold in config.yaml (currently set to {threshold})</li>
+                    <li>Try different research interests</li>
+                    <li>Check different categories or topics</li>
+                </ul>
+            </div>
+        </div>
+        """.format(threshold=config.get("threshold", 2))
+    
     # Add papers
     for i, paper in enumerate(papers):
         paper_id = f"paper-{i}"
@@ -184,28 +340,86 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
         # Add key innovations and critical analysis with special styling
         if "Key innovations" in paper:
             html += f'<div class="key-section"><div class="section-title">Key Innovations:</div> {paper.get("Key innovations", "")}</div>'
+            print(f"Added Key innovations for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Key innovations field")
         
         if "Critical analysis" in paper:
             html += f'<div class="key-section"><div class="section-title">Critical Analysis:</div> {paper.get("Critical analysis", "")}</div>'
+            print(f"Added Critical analysis for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Critical analysis field")
+            
+        # Add goal
+        if "Goal" in paper:
+            html += f'<div class="key-section"><div class="section-title">Goal:</div> {paper.get("Goal", "")}</div>'
+            print(f"Added Goal for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Goal field")
+            
+        # Add Data
+        if "Data" in paper:
+            html += f'<div class="implementation"><div class="section-title">Data:</div> {paper.get("Data", "")}</div>'
+            print(f"Added Data for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Data field")
+            
+        # Add Methodology
+        if "Methodology" in paper:
+            html += f'<div class="implementation"><div class="section-title">Methodology:</div> {paper.get("Methodology", "")}</div>'
+            print(f"Added Methodology for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Methodology field")
             
         # Add implementation details
         if "Implementation details" in paper:
             html += f'<div class="implementation"><div class="section-title">Implementation Details:</div> {paper.get("Implementation details", "")}</div>'
+            print(f"Added Implementation details for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Implementation details field")
             
         # Add experiments and results
         if "Experiments & Results" in paper:
             html += f'<div class="experiments"><div class="section-title">Experiments & Results:</div> {paper.get("Experiments & Results", "")}</div>'
+            print(f"Added Experiments & Results for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Experiments & Results field")
             
         # Add discussion and next steps
         if "Discussion & Next steps" in paper:
             html += f'<div class="discussion"><div class="section-title">Discussion & Next Steps:</div> {paper.get("Discussion & Next steps", "")}</div>'
+            print(f"Added Discussion & Next steps for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Discussion & Next steps field")
+            
+        # Add Related work
+        if "Related work" in paper:
+            html += f'<div class="discussion"><div class="section-title">Related Work:</div> {paper.get("Related work", "")}</div>'
+            print(f"Added Related work for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Related work field")
+            
+        # Add Practical applications
+        if "Practical applications" in paper:
+            html += f'<div class="discussion"><div class="section-title">Practical Applications:</div> {paper.get("Practical applications", "")}</div>'
+            print(f"Added Practical applications for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Practical applications field")
+            
+        # Add Key takeaways
+        if "Key takeaways" in paper:
+            html += f'<div class="key-section"><div class="section-title">Key Takeaways:</div> {paper.get("Key takeaways", "")}</div>'
+            print(f"Added Key takeaways for paper {i+1}")
+        else:
+            print(f"Paper {i+1} is missing Key takeaways field")
         
-        # Add remaining sections
+        # Add remaining sections that weren't already handled specifically above
         for key, value in paper.items():
             if key in ["title", "authors", "subjects", "main_page", "Relevancy score", "Reasons for match", 
                       "design_category", "design_techniques", "summarized_text", "abstract",
-                      "Key innovations", "Critical analysis", "Implementation details", 
-                      "Experiments & Results", "Discussion & Next steps"]:
+                      "Key innovations", "Critical analysis", "Goal", "Data", "Methodology", 
+                      "Implementation details", "Experiments & Results", "Discussion & Next steps",
+                      "Related work", "Practical applications", "Key takeaways"]:
                 continue
             
             if isinstance(value, str) and value.strip():
@@ -220,6 +434,7 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
                     section_class = "discussion"
                 
                 html += f'<div class="{section_class}"><div class="section-title">{key}:</div> {value}</div>'
+                print(f"Added additional field {key} for paper {i+1}")
             
         # Add links
         html += f"""
@@ -239,9 +454,11 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
     </html>
     """
     
+    # Save the HTML file
     with open(html_file, "w") as f:
         f.write(html)
     
+    print(f"Saved HTML report to {html_file}")
     return html_file
 
 def sample(email, topic, physics_topic, categories, interest, use_openai, use_gemini, use_anthropic, 
@@ -329,14 +546,61 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             if design_papers:
                 papers = design_papers
         
-        # Analyze papers using selected models
-        relevancy, hallucination = model_manager.analyze_papers(
-            papers,
-            query={"interest": interest},
-            providers=providers,
-            model_names=model_names,
-            threshold_score=0
-        )
+        # Process papers directly instead of using model_manager
+        print("\n===== ANALYZING PAPERS FOR EMAIL =====")
+        print(f"Processing {len(papers)} papers...")
+        relevancy = []
+        hallucination = False
+        
+        # Use OpenAI if selected
+        if use_openai and model_manager.is_provider_available(ModelProvider.OPENAI):
+            try:
+                # Import directly to avoid circular imports
+                from relevancy import generate_relevance_score
+                openai_results, hallu = generate_relevance_score(
+                    papers,
+                    query={"interest": interest},
+                    model_name=openai_model,
+                    threshold_score=0,  # We'll filter later
+                    num_paper_in_prompt=2
+                )
+                hallucination = hallucination or hallu
+                relevancy.extend(openai_results)
+                print(f"OpenAI analysis added {len(openai_results)} papers")
+            except Exception as e:
+                print(f"Error during OpenAI analysis: {e}")
+        
+        # Use Gemini if selected and no papers yet
+        if use_gemini and model_manager.is_provider_available(ModelProvider.GEMINI) and len(relevancy) == 0:
+            try:
+                # Import directly to avoid circular imports
+                from gemini_utils import analyze_papers_with_gemini
+                gemini_papers = analyze_papers_with_gemini(
+                    papers,
+                    query={"interest": interest},
+                    model_name=gemini_model
+                )
+                # Process papers to ensure they have the right fields
+                for paper in gemini_papers:
+                    if 'gemini_analysis' in paper:
+                        # Copy all fields from gemini_analysis to the paper object
+                        for key, value in paper['gemini_analysis'].items():
+                            paper[key] = value
+                
+                relevancy.extend(gemini_papers)
+                print(f"Gemini analysis added {len(gemini_papers)} papers")
+            except Exception as e:
+                print(f"Error during Gemini analysis: {e}")
+                
+        # Use Anthropic if selected and no papers yet
+        if use_anthropic and model_manager.is_provider_available(ModelProvider.ANTHROPIC) and len(relevancy) == 0:
+            print("Anthropic/Claude analysis not yet implemented")
+        
+        print(f"Total papers after analysis: {len(relevancy)}")
+        
+        # Filter papers by threshold from config
+        threshold = config.get("threshold", 2)
+        relevancy = filter_papers_by_threshold(relevancy, threshold)
         
         # Add design automation information if requested
         if design_automation and relevancy:
@@ -428,9 +692,8 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             else:
                 interpretability_info = ""
                 
-            # Generate HTML report with topic
-            actual_topic = topic
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
+            # Generate HTML report
+            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
             
             # Create summary texts for display
             summary_texts = []
@@ -448,9 +711,8 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             result_text = cluster_summary + "\n\n".join(summary_texts) + interpretability_info
             return result_text + f"\n\nHTML report saved to: {html_file}"
         else:
-            # Generate HTML report with topic
-            actual_topic = topic
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
+            # Generate HTML report
+            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
             
             # Create summary texts for display
             summary_texts = []
@@ -468,9 +730,8 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             result_text = "\n\n".join(summary_texts)
             return result_text + f"\n\nHTML report saved to: {html_file}"
     else:
-        # Generate HTML report for basic results with topic
-        actual_topic = topic
-        html_file = generate_html_report(papers, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
+        # Generate HTML report for basic results
+        html_file = generate_html_report(papers, title=f"ArXiv Digest: {topic} papers")
         result_text = "\n\n".join(f"Title: {paper['title']}\nAuthors: {paper['authors']}" for paper in papers)
         return result_text + f"\n\nHTML report saved to: {html_file}"
 
@@ -577,14 +838,61 @@ def test(email, topic, physics_topic, categories, interest, key,
             if design_papers:
                 papers = design_papers
         
-        # Analyze papers using selected models
-        relevancy, hallucination = model_manager.analyze_papers(
-            papers,
-            query={"interest": interest},
-            providers=providers,
-            model_names=model_names,
-            threshold_score=7
-        )
+        # Process papers directly instead of using model_manager
+        print("\n===== ANALYZING PAPERS =====")
+        print(f"Processing {len(papers)} papers...")
+        relevancy = []
+        hallucination = False
+        
+        # Use OpenAI if selected
+        if use_openai and model_manager.is_provider_available(ModelProvider.OPENAI):
+            try:
+                # Import directly to avoid circular imports
+                from relevancy import generate_relevance_score
+                openai_results, hallu = generate_relevance_score(
+                    papers,
+                    query={"interest": interest},
+                    model_name=openai_model,
+                    threshold_score=0,  # We'll filter later
+                    num_paper_in_prompt=2
+                )
+                hallucination = hallucination or hallu
+                relevancy.extend(openai_results)
+                print(f"OpenAI analysis added {len(openai_results)} papers")
+            except Exception as e:
+                print(f"Error during OpenAI analysis: {e}")
+        
+        # Use Gemini if selected and no papers yet
+        if use_gemini and model_manager.is_provider_available(ModelProvider.GEMINI) and len(relevancy) == 0:
+            try:
+                # Import directly to avoid circular imports
+                from gemini_utils import analyze_papers_with_gemini
+                gemini_papers = analyze_papers_with_gemini(
+                    papers,
+                    query={"interest": interest},
+                    model_name=gemini_model
+                )
+                # Process papers to ensure they have the right fields
+                for paper in gemini_papers:
+                    if 'gemini_analysis' in paper:
+                        # Copy all fields from gemini_analysis to the paper object
+                        for key, value in paper['gemini_analysis'].items():
+                            paper[key] = value
+                
+                relevancy.extend(gemini_papers)
+                print(f"Gemini analysis added {len(gemini_papers)} papers")
+            except Exception as e:
+                print(f"Error during Gemini analysis: {e}")
+                
+        # Use Anthropic if selected and no papers yet
+        if use_anthropic and model_manager.is_provider_available(ModelProvider.ANTHROPIC) and len(relevancy) == 0:
+            print("Anthropic/Claude analysis not yet implemented")
+        
+        print(f"Total papers after analysis: {len(relevancy)}")
+        
+        # Filter papers by threshold from config
+        threshold = config.get("threshold", 2)
+        relevancy = filter_papers_by_threshold(relevancy, threshold)
         
         # Add design automation information if requested
         if design_automation and relevancy:
@@ -618,36 +926,140 @@ def test(email, topic, physics_topic, categories, interest, key,
                         if design_analysis and "error" not in design_analysis:
                             paper["design_analysis"] = design_analysis
         
-        # Create the email body
-        body = "<br><br>".join(
-            [
-                f'<b>Subject: </b>{paper["subjects"]}<br><b>Title:</b> <a href="{paper["main_page"]}">{paper["title"]}</a><br><b>Authors:</b> {paper["authors"]}<br>'
-                f'<b>Score:</b> {paper["Relevancy score"]}<br><b>Reason:</b> {paper["Reasons for match"]}<br>'
-                f'<b>Key innovations:</b> {paper.get("Key innovations", "Not provided")}<br>'
-                f'<b>Critical analysis:</b> {paper.get("Critical analysis", "Not provided")}<br>'
-                f'<b>Goal:</b> {paper["Goal"]}<br><b>Data:</b> {paper["Data"]}<br><b>Methodology:</b> {paper["Methodology"]}<br>'
-                f'<b>Implementation details:</b> {paper.get("Implementation details", "Not provided")}<br>'
-                f'<b>Experiments & Results:</b> {paper["Experiments & Results"]}<br><b>Git:</b> {paper["Git"]}<br>'
-                f'<b>Discussion & Next steps:</b> {paper["Discussion & Next steps"]}<br>'
-                f'<b>Related work:</b> {paper.get("Related work", "Not provided")}<br>'
-                f'<b>Practical applications:</b> {paper.get("Practical applications", "Not provided")}<br>'
-                f'<b>Key takeaways:</b> {paper.get("Key takeaways", "Not provided")}'
-                + (f'<br><br><h3>Design Automation Analysis</h3>'
-                   f'<b>Design Category:</b> {paper.get("design_category", "")}<br>'
-                   f'<b>Design Techniques:</b> {", ".join(paper.get("design_techniques", []))}<br>'
-                   f'<b>Design Metrics:</b> {", ".join(paper.get("design_metrics", []))}<br>'
-                   + (f'<h4>Detailed Design Analysis</h4>'
-                      f'<b>Design automation focus:</b> {paper.get("design_analysis", {}).get("Design automation focus", "Not provided")}<br>'
-                      f'<b>Technical approach:</b> {paper.get("design_analysis", {}).get("Technical approach", "Not provided")}<br>'
-                      f'<b>Visual outputs:</b> {paper.get("design_analysis", {}).get("Visual outputs", "Not provided")}<br>'
-                      f'<b>Designer interaction:</b> {paper.get("design_analysis", {}).get("Designer interaction", "Not provided")}<br>'
-                      f'<b>Real-world applicability:</b> {paper.get("design_analysis", {}).get("Real-world applicability", "Not provided")}<br>'
-                      f'<b>Capabilities:</b> Replaceable tools: {", ".join(paper.get("design_analysis", {}).get("capabilities", {}).get("replaceable_tools", []))}, '
-                      f'Automation level: {paper.get("design_analysis", {}).get("capabilities", {}).get("automation_level", "Unknown")}'
-                      if "design_analysis" in paper else "")
-                   if design_automation and (paper.get("design_category") or paper.get("design_techniques")) else "")
-                for paper in relevancy
-            ])
+        # Create the email body with better styling
+        paper_bodies = []
+        for paper in relevancy:
+            paper_html = f'''
+            <div style="margin-bottom: 30px; border-bottom: 1px solid #ddd; padding-bottom: 20px;">
+                <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">
+                    <a href="{paper["main_page"]}" style="color: #2980b9; text-decoration: none;">{paper["title"]}</a>
+                </div>
+                <div style="margin-bottom: 5px;"><b>Subject:</b> {paper["subjects"]}</div>
+                <div style="margin-bottom: 5px;"><b>Authors:</b> {paper["authors"]}</div>
+                <div style="margin-bottom: 10px; font-weight: bold; color: #e74c3c;">
+                    <b>Score:</b> {paper["Relevancy score"]}
+                </div>
+                
+                <div style="margin: 15px 0; background-color: #f5f9f9; padding: 15px; border-left: 4px solid #2ecc71;">
+                    <b>Reason for Relevance:</b> {paper["Reasons for match"]}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Key Innovations:</div>
+                    {paper.get("Key innovations", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Critical Analysis:</div>
+                    {paper.get("Critical analysis", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Goal:</div>
+                    {paper.get("Goal", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Data:</div>
+                    {paper.get("Data", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Methodology:</div>
+                    {paper.get("Methodology", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Implementation Details:</div>
+                    {paper.get("Implementation details", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f5f5f5;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Experiments & Results:</div>
+                    {paper.get("Experiments & Results", "Not provided")}
+                </div>
+                
+                <div style="margin-bottom: 5px;"><b>Git:</b> {paper.get("Git", "Not provided")}</div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Discussion & Next Steps:</div>
+                    {paper.get("Discussion & Next steps", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Related Work:</div>
+                    {paper.get("Related work", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Practical Applications:</div>
+                    {paper.get("Practical applications", "Not provided")}
+                </div>
+                
+                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
+                    <div style="font-weight: bold; margin-bottom: 5px;">Key Takeaways:</div>
+                    {paper.get("Key takeaways", "Not provided")}
+                </div>
+            '''
+            
+            # Add design automation section if available
+            if design_automation and (paper.get("design_category") or paper.get("design_techniques")):
+                paper_html += f'''
+                <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px;">
+                    <h3>Design Automation Analysis</h3>
+                    <div style="margin-bottom: 5px;"><b>Design Category:</b> {paper.get("design_category", "")}</div>
+                    <div style="margin-bottom: 5px;"><b>Design Techniques:</b> {", ".join(paper.get("design_techniques", []))}</div>
+                    <div style="margin-bottom: 5px;"><b>Design Metrics:</b> {", ".join(paper.get("design_metrics", []))}</div>
+                '''
+                
+                if "design_analysis" in paper:
+                    paper_html += f'''
+                    <h4>Detailed Design Analysis</h4>
+                    <div style="margin-bottom: 5px;"><b>Design automation focus:</b> {paper.get("design_analysis", {}).get("Design automation focus", "Not provided")}</div>
+                    <div style="margin-bottom: 5px;"><b>Technical approach:</b> {paper.get("design_analysis", {}).get("Technical approach", "Not provided")}</div>
+                    <div style="margin-bottom: 5px;"><b>Visual outputs:</b> {paper.get("design_analysis", {}).get("Visual outputs", "Not provided")}</div>
+                    <div style="margin-bottom: 5px;"><b>Designer interaction:</b> {paper.get("design_analysis", {}).get("Designer interaction", "Not provided")}</div>
+                    <div style="margin-bottom: 5px;"><b>Real-world applicability:</b> {paper.get("design_analysis", {}).get("Real-world applicability", "Not provided")}</div>
+                    <div style="margin-bottom: 5px;"><b>Capabilities:</b> Replaceable tools: {", ".join(paper.get("design_analysis", {}).get("capabilities", {}).get("replaceable_tools", []))}, 
+                    Automation level: {paper.get("design_analysis", {}).get("capabilities", {}).get("automation_level", "Unknown")}</div>
+                    '''
+                
+                paper_html += '</div>'
+            
+            paper_html += '''
+                <div style="margin-top: 20px;">
+                    <a href="{}" style="color: #2980b9; text-decoration: none; margin-right: 15px;">PDF</a>
+                    <a href="{}" style="color: #2980b9; text-decoration: none;">arXiv</a>
+                </div>
+            </div>
+            '''.format(paper.get("pdf", paper.get("main_page", "#") + ".pdf"), paper.get("main_page", "#"))
+            
+            paper_bodies.append(paper_html)
+        
+        body = '''
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; }
+                a { color: #2980b9; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+            </style>
+        </head>
+        <body>
+            <h1>ArXiv Digest Results</h1>
+        '''
+        
+        # Add warning for hallucinations
+        if hallucination:
+            body += '<p style="color: #e74c3c; font-weight: bold;">Warning: The model hallucinated some papers. We have tried to remove them, but the scores may not be accurate.</p>'
+        
+        # Add papers
+        body += ''.join(paper_bodies)
+        
+        body += '''
+        </body>
+        </html>
+        '''
             
         # Add specialized analysis if requested
         if special_analysis and len(relevancy) > 0:
@@ -708,12 +1120,6 @@ def test(email, topic, physics_topic, categories, interest, key,
     else:
         body = "<br><br>".join([f'Title: <a href="{paper["main_page"]}">{paper["title"]}</a><br>Authors: {paper["authors"]}' for paper in papers])
     
-    # Generate HTML report file with topic
-    actual_topic = topic
-    html_file = generate_html_report(relevancy if interest else papers, 
-                                   title=f"ArXiv Digest: {actual_topic} papers", 
-                                   topic=actual_topic)
-    
     # Send email
     sg = sendgrid.SendGridAPIClient(api_key=key)
     from_email = Email(email)
@@ -722,6 +1128,10 @@ def test(email, topic, physics_topic, categories, interest, key,
     content = Content("text/html", body)
     mail = Mail(from_email, to_email, subject, content)
     mail_json = mail.get()
+
+    # Generate HTML report file
+    html_file = generate_html_report(relevancy if interest else papers, 
+                                   title=f"ArXiv Digest: {topic} papers")
     
     # Send an HTTP POST request to /mail/send
     response = sg.client.mail.send.post(request_body=mail_json)

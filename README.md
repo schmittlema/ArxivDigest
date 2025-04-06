@@ -137,7 +137,7 @@ topic: "Computer Science"
 categories: ["Artificial Intelligence", "Computation and Language", "Machine Learning", "Information Retrieval"]
 
 # Minimum relevance score (1-10)
-threshold: 7
+threshold: 2
 
 # Your research interests in natural language
 interest: |

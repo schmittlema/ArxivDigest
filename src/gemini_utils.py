@@ -126,17 +126,26 @@ def analyze_papers_with_gemini(
             Title: {paper['title']}
             Authors: {paper['authors']}
             Abstract: {paper['abstract']}
-            Content: {paper['content'][:5000]}  # Limit content length
+            Content: {paper['content'][:5000]}
             
-            Please provide:
-            1. Topic classification
-            2. Paper's relationship to the user's interests (score 1-10)
-            3. Key innovations
-            4. Methodology summary
-            5. Technical significance
-            6. Related research areas
+            Please provide your response as a single JSON object with the following structure:
+            {{
+              "Relevancy score": 1-10 (higher = more relevant),
+              "Reasons for match": "Detailed explanation of why this paper matches the interests",
+              "Key innovations": "List the main contributions of the paper",
+              "Critical analysis": "Evaluate strengths and weaknesses",
+              "Goal": "What problem does the paper address?",
+              "Data": "Description of datasets used",
+              "Methodology": "Technical approach and methods",
+              "Implementation details": "Model architecture, hyperparameters, etc.",
+              "Experiments & Results": "Key findings and comparisons",
+              "Discussion & Next steps": "Limitations and future work",
+              "Related work": "Connection to similar research",
+              "Practical applications": "Real-world uses of this research",
+              "Key takeaways": "Main points to remember"
+            }}
             
-            Format your response as JSON with these fields.
+            Format your response as a valid JSON object and nothing else.
             """
             
             generation_config = {
@@ -164,6 +173,10 @@ def analyze_papers_with_gemini(
                     
                     # Add Gemini analysis to paper
                     paper['gemini_analysis'] = gemini_analysis
+                    
+                    # Directly copy fields to paper
+                    for key, value in gemini_analysis.items():
+                        paper[key] = value
                 else:
                     logger.warning(f"Could not extract JSON from Gemini response for paper {paper['title']}")
                     paper['gemini_analysis'] = {"error": "Failed to parse response"}

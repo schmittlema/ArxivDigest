@@ -46,7 +46,7 @@ def is_json(myjson):
 def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
     selected_data = []
     if response is None:
-        return []
+        return [], False
         
     # Handle both old and new API response formats
     if isinstance(response, dict) and 'message' in response:
@@ -104,20 +104,46 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
     else:
         hallucination = False
 
+    # Define expected analysis fields we want to ensure are copied to the paper objects
+    analysis_fields = [
+        "Relevancy score", "Reasons for match", "Key innovations", "Critical analysis",
+        "Goal", "Data", "Methodology", "Implementation details", "Experiments & Results",
+        "Git", "Discussion & Next steps", "Related work", "Practical applications", 
+        "Key takeaways"
+    ]
+
     for idx, inst in enumerate(score_items):
         # if the decoding stops due to length, the last example is likely truncated so we discard it
         if scores[idx] < threshold_score:
             continue
+            
+        # Create detailed output string for logging and console display
         output_str = "Subject: " + paper_data[idx]["subjects"] + "\n"
         output_str += "Title: " + paper_data[idx]["title"] + "\n"
         output_str += "Authors: " + paper_data[idx]["authors"] + "\n"
         output_str += "Link: " + paper_data[idx]["main_page"] + "\n"
+        
+        # Copy all fields from the analysis to the paper object
         for key, value in inst.items():
             paper_data[idx][key] = value
             output_str += str(key) + ": " + str(value) + "\n"
+            
+        # Ensure all expected analysis fields are present in the paper object
+        # This ensures fields used in the HTML template like "Key innovations" are set
+        for field in analysis_fields:
+            if field in inst:
+                # Double-check the field got copied (should be redundant with the loop above)
+                paper_data[idx][field] = inst[field]
+                print(f"Found and copied field: {field}")
+            else:
+                print(f"Missing analysis field: {field}")
+        
         paper_data[idx]['summarized_text'] = output_str
         selected_data.append(paper_data[idx])
         
+    print(f"DEBUG: Selected papers count: {len(selected_data)}")
+    print(f"DEBUG: Paper fields: {list(selected_data[0].keys()) if selected_data else 'No papers'}")
+    
     return selected_data, hallucination
 
 
@@ -134,7 +160,7 @@ def generate_relevance_score(
     all_papers,
     query,
     model_name="gpt-3.5-turbo-16k",
-    threshold_score=7,
+    threshold_score=2,
     num_paper_in_prompt=1,
     temperature=0.4,
     top_p=1.0,

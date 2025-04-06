@@ -584,6 +584,15 @@ def main():
     if args.analyze and design_papers:
         design_papers = analyze_papers_with_llm(design_papers, args.interest)
         logger.info("Completed LLM analysis of papers")
+        
+        # Debug: Print out the analysis fields for the first paper
+        if design_papers:
+            logger.info(f"Paper analysis fields: {list(design_papers[0].keys())}")
+            # If 'Key innovations' is present, it confirms we have the detailed analysis
+            if 'Key innovations' in design_papers[0]:
+                logger.info("Detailed analysis fields present!")
+            else:
+                logger.warning("Detailed analysis fields missing!")
     
     # Print summary to console
     for paper in design_papers[:10]:  # Print top 10
