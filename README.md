@@ -29,12 +29,12 @@ This repository provides an enhanced daily digest for newly published arXiv pape
 - **Multi-Model Integration**: Support for OpenAI, Gemini, and Claude models for paper analysis
 - **Enhanced Analysis**: Detailed paper breakdowns including key innovations, critical analysis, and practical applications
 - **HTML Report Generation**: Clean, organized reports saved with date-based filenames
-- **Design Automation Focus**: Specialized tools for finding and analyzing design-related papers
-- **Mechanistic Interpretability**: Special analysis for papers focused on AI safety and mechanistic interpretability
-- **Email Integration**: Send digests via email using SendGrid
+- **Adjustable Relevancy Threshold**: Interactive slider for filtering papers by relevance score
+- **Design Automation Backend**: Specialized tools for analyzing design-related papers
 - **Topic Clustering**: Group similar papers using AI-powered clustering (Gemini)
+- **Robust JSON Parsing**: Reliable extraction of analysis results from LLM responses
 - **Standardized Directory Structure**: Organized codebase with `/src`, `/data`, and `/digest` directories
-- **Web UI**: Easy-to-use Gradio interface for interactive use
+- **Simplified Web UI**: Clean Gradio interface focused on core paper analysis functionality
 
 ## 🚀 Quick Start
 
@@ -70,13 +70,13 @@ You can use any combination of these models, allowing you to compare results or 
 
 ## 🎨 Design Paper Discovery
 
-A specialized module is included for finding papers related to AI/ML for design automation:
+A specialized backend module is included for finding papers related to AI/ML for design automation:
 
 - **Design Automation Tool**: Find papers related to design automation, creative AI, and generative design
 - **Categorization**: Automatically sort papers into categories like UI/UX Design, Layout Generation, etc.
 - **Technique Analysis**: Identify papers using specific techniques like GANs, Diffusion Models, LLMs, etc.
 
-Run this as a standalone tool with:
+While the UI components for design automation have been simplified, you can still access this functionality through the command line or by using the backend directly:
 
 ```bash
 # Basic usage
@@ -108,7 +108,6 @@ Reports are generated in multiple formats:
 
 - **HTML Reports**: Clean, organized reports saved to the `/digest` directory with date-based filenames
 - **Console Output**: Summary information displayed in the terminal
-- **Email**: Optional email delivery via SendGrid
 - **JSON Data**: Raw paper data saved to the `/data` directory
 
 Every HTML report includes:
@@ -150,12 +149,13 @@ interest: |
 
 ### Running the Web Interface
 
-To run locally with the full UI:
+To run locally with the simplified UI:
 
 1. Install requirements: `pip install -r requirements.txt`
-2. Run the app: `python src/app.py` 
+2. Run the app: `python src/app_new.py` 
 3. Open the URL displayed in your terminal
 4. Enter your API key(s) and configure your preferences
+5. Use the relevancy threshold slider to adjust paper filtering (default is 2)
 
 ### Running via GitHub Action
 
@@ -175,7 +175,10 @@ To set up automated daily digests:
 For advanced users:
 
 ```bash
-# Regular paper digests
+# Regular paper digests with simplified UI
+python src/app_new.py
+
+# Regular paper digests with original UI
 python src/app.py
 
 # Design paper finder
@@ -195,10 +198,10 @@ This tool respects arXiv's robots.txt and implements proper rate limiting. If yo
 The repository is organized as follows:
 
 - `/src` - All Python source code
-  - `app.py` - Main web interface
-  - `app_new.py` - Updated interface with multi-model support
+  - `app.py` - Original web interface with full feature set
+  - `app_new.py` - Simplified interface with improved threshold handling and UI
   - `download_new_papers.py` - arXiv crawler
-  - `relevancy.py` - Paper scoring and analysis
+  - `relevancy.py` - Paper scoring and analysis with robust JSON parsing
   - `model_manager.py` - Multi-model integration
   - `gemini_utils.py` - Gemini API integration
   - `design/` - Design automation tools
@@ -211,11 +214,13 @@ The repository is organized as follows:
 - [x] Support multiple AI models (OpenAI, Gemini, Claude)
 - [x] Generate comprehensive HTML reports with date-based filenames
 - [x] Specialized analysis for design automation papers
-- [x] Mechanistic interpretability analysis
 - [x] Topic clustering via Gemini
 - [x] Standardized directory structure
 - [x] Enhanced HTML reports with detailed analysis sections
 - [x] Pre-filtering of arXiv categories for efficiency
+- [x] Adjustable relevancy threshold with UI slider
+- [x] Robust JSON parsing for reliable LLM response handling
+- [x] Simplified UI focused on core functionality
 - [ ] Full PDF content analysis
 - [ ] Author-based ranking and filtering
 - [ ] Fine-tuned open-source model support

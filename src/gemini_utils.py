@@ -142,11 +142,14 @@ def analyze_papers_with_gemini(
               "Discussion & Next steps": "Limitations and future work",
               "Related work": "Connection to similar research",
               "Practical applications": "Real-world uses of this research",
-              "Key takeaways": "Main points to remember"
+              "Key takeaways": ["Point 1", "Point 2", "Point 3"]
             }}
             
             Format your response as a valid JSON object and nothing else.
             """
+            
+            # Just log that we're sending a prompt to Gemini
+            print(f"Sending prompt to Gemini for paper: {paper['title'][:50]}...")
             
             generation_config = {
                 "temperature": config.temperature,

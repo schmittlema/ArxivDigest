@@ -2,8 +2,6 @@ import gradio as gr
 from download_new_papers import get_papers
 import utils
 from relevancy import generate_relevance_score, process_subject_fields
-import sendgrid
-from sendgrid.helpers.mail import Mail, Email, To, Content
 
 import os
 import openai
@@ -127,16 +125,33 @@ def filter_papers_by_threshold(papers, threshold):
             paper["Relevancy score"] = threshold
             print(f"Assigned default threshold score to paper: {paper.get('title')}")
             
-        # Add missing fields with default values
+        # Add missing fields with default values - always ensure all fields exist
         for field in required_fields:
-            if field not in paper:
-                paper[field] = f"Not available in analysis"
+            if field not in paper or paper[field] is None:
+                paper[field] = f"Not available in the paper content"
                 print(f"Added missing field {field} to paper: {paper.get('title')}")
+            elif isinstance(paper[field], str) and (not paper[field].strip() or 
+                  paper[field] == "Not provided" or paper[field] == "Not available in analysis"):
+                paper[field] = f"Not available in the paper content"
+                print(f"Replaced placeholder for field {field} in paper: {paper.get('title')}")
     
     # Now filter papers
     filtered_papers = [p for p in papers if p.get("Relevancy score", 0) >= threshold]
     print(f"After filtering: {len(filtered_papers)} papers remain out of {len(papers)}")
     
+    # If fewer than 10 papers passed the filter, add the highest-scoring papers below threshold
+    # This ensures we always show a reasonable number of papers
+    if len(filtered_papers) < 10 and len(papers) > len(filtered_papers):
+        print(f"WARNING: Only {len(filtered_papers)} papers passed the threshold filter. Adding more papers.")
+        # Sort remaining papers by score and add the highest scoring ones
+        remaining_papers = [p for p in papers if p not in filtered_papers]
+        remaining_papers.sort(key=lambda x: x.get("Relevancy score", 0), reverse=True)
+        # Add enough papers to get to 10 or all remaining papers, whichever is less
+        additional_count = min(10 - len(filtered_papers), len(remaining_papers))
+        filtered_papers.extend(remaining_papers[:additional_count])
+        print(f"Added {additional_count} additional papers below threshold. Total papers: {len(filtered_papers)}")
+    
+    # Fallback if no papers passed the filter
     if len(filtered_papers) == 0 and len(papers) > 0:
         print("WARNING: No papers passed the threshold filter. Using all papers.")
         filtered_papers = papers
@@ -299,7 +314,7 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
             <div class="abstract">
                 <p>No papers met the relevancy threshold criteria. You can:</p>
                 <ul>
-                    <li>Lower the threshold in config.yaml (currently set to {threshold})</li>
+                    <li>Lower the threshold using the slider in Advanced Settings (currently set to {threshold})</li>
                     <li>Try different research interests</li>
                     <li>Check different categories or topics</li>
                 </ul>
@@ -337,86 +352,106 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
         if "abstract" in paper:
             html += f'<div class="abstract"><b>Abstract:</b> {paper.get("abstract", "")}</div>'
         
+        # Helper function to format field content properly
+        def format_field_content(content):
+            if isinstance(content, list):
+                # Format list items with bullet points
+                return '<ul>' + ''.join([f'<li>{item}</li>' for item in content]) + '</ul>'
+            else:
+                return content
+        
         # Add key innovations and critical analysis with special styling
         if "Key innovations" in paper:
-            html += f'<div class="key-section"><div class="section-title">Key Innovations:</div> {paper.get("Key innovations", "")}</div>'
+            formatted_innovations = format_field_content(paper.get("Key innovations", ""))
+            html += f'<div class="key-section"><div class="section-title">Key Innovations:</div> {formatted_innovations}</div>'
             print(f"Added Key innovations for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Key innovations field")
         
         if "Critical analysis" in paper:
-            html += f'<div class="key-section"><div class="section-title">Critical Analysis:</div> {paper.get("Critical analysis", "")}</div>'
+            formatted_analysis = format_field_content(paper.get("Critical analysis", ""))
+            html += f'<div class="key-section"><div class="section-title">Critical Analysis:</div> {formatted_analysis}</div>'
             print(f"Added Critical analysis for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Critical analysis field")
             
         # Add goal
         if "Goal" in paper:
-            html += f'<div class="key-section"><div class="section-title">Goal:</div> {paper.get("Goal", "")}</div>'
+            formatted_goal = format_field_content(paper.get("Goal", ""))
+            html += f'<div class="key-section"><div class="section-title">Goal:</div> {formatted_goal}</div>'
             print(f"Added Goal for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Goal field")
             
         # Add Data
         if "Data" in paper:
-            html += f'<div class="implementation"><div class="section-title">Data:</div> {paper.get("Data", "")}</div>'
+            formatted_data = format_field_content(paper.get("Data", ""))
+            html += f'<div class="implementation"><div class="section-title">Data:</div> {formatted_data}</div>'
             print(f"Added Data for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Data field")
             
         # Add Methodology
         if "Methodology" in paper:
-            html += f'<div class="implementation"><div class="section-title">Methodology:</div> {paper.get("Methodology", "")}</div>'
+            formatted_methodology = format_field_content(paper.get("Methodology", ""))
+            html += f'<div class="implementation"><div class="section-title">Methodology:</div> {formatted_methodology}</div>'
             print(f"Added Methodology for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Methodology field")
             
         # Add implementation details
         if "Implementation details" in paper:
-            html += f'<div class="implementation"><div class="section-title">Implementation Details:</div> {paper.get("Implementation details", "")}</div>'
+            formatted_details = format_field_content(paper.get("Implementation details", ""))
+            html += f'<div class="implementation"><div class="section-title">Implementation Details:</div> {formatted_details}</div>'
             print(f"Added Implementation details for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Implementation details field")
             
         # Add experiments and results
         if "Experiments & Results" in paper:
-            html += f'<div class="experiments"><div class="section-title">Experiments & Results:</div> {paper.get("Experiments & Results", "")}</div>'
+            formatted_results = format_field_content(paper.get("Experiments & Results", ""))
+            html += f'<div class="experiments"><div class="section-title">Experiments & Results:</div> {formatted_results}</div>'
             print(f"Added Experiments & Results for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Experiments & Results field")
             
         # Add discussion and next steps
         if "Discussion & Next steps" in paper:
-            html += f'<div class="discussion"><div class="section-title">Discussion & Next Steps:</div> {paper.get("Discussion & Next steps", "")}</div>'
+            formatted_discussion = format_field_content(paper.get("Discussion & Next steps", ""))
+            html += f'<div class="discussion"><div class="section-title">Discussion & Next Steps:</div> {formatted_discussion}</div>'
             print(f"Added Discussion & Next steps for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Discussion & Next steps field")
             
         # Add Related work
         if "Related work" in paper:
-            html += f'<div class="discussion"><div class="section-title">Related Work:</div> {paper.get("Related work", "")}</div>'
+            formatted_related = format_field_content(paper.get("Related work", ""))
+            html += f'<div class="discussion"><div class="section-title">Related Work:</div> {formatted_related}</div>'
             print(f"Added Related work for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Related work field")
             
         # Add Practical applications
         if "Practical applications" in paper:
-            html += f'<div class="discussion"><div class="section-title">Practical Applications:</div> {paper.get("Practical applications", "")}</div>'
+            formatted_applications = format_field_content(paper.get("Practical applications", ""))
+            html += f'<div class="discussion"><div class="section-title">Practical Applications:</div> {formatted_applications}</div>'
             print(f"Added Practical applications for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Practical applications field")
             
         # Add Key takeaways
         if "Key takeaways" in paper:
-            html += f'<div class="key-section"><div class="section-title">Key Takeaways:</div> {paper.get("Key takeaways", "")}</div>'
+            formatted_takeaways = format_field_content(paper.get("Key takeaways", ""))
+            html += f'<div class="key-section"><div class="section-title">Key Takeaways:</div> {formatted_takeaways}</div>'
             print(f"Added Key takeaways for paper {i+1}")
         else:
             print(f"Paper {i+1} is missing Key takeaways field")
         
         # Add remaining sections that weren't already handled specifically above
         for key, value in paper.items():
+            # Skip fields we've already handled or don't want to display
             if key in ["title", "authors", "subjects", "main_page", "Relevancy score", "Reasons for match", 
-                      "design_category", "design_techniques", "summarized_text", "abstract",
+                      "design_category", "design_techniques", "summarized_text", "abstract", "content",
                       "Key innovations", "Critical analysis", "Goal", "Data", "Methodology", 
                       "Implementation details", "Experiments & Results", "Discussion & Next steps",
                       "Related work", "Practical applications", "Key takeaways"]:
@@ -433,7 +468,8 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
                 elif "related" in key.lower() or "practical" in key.lower() or "takeaway" in key.lower():
                     section_class = "discussion"
                 
-                html += f'<div class="{section_class}"><div class="section-title">{key}:</div> {value}</div>'
+                formatted_value = format_field_content(value)
+                html += f'<div class="{section_class}"><div class="section-title">{key}:</div> {formatted_value}</div>'
                 print(f"Added additional field {key} for paper {i+1}")
             
         # Add links
@@ -462,8 +498,16 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
     return html_file
 
 def sample(email, topic, physics_topic, categories, interest, use_openai, use_gemini, use_anthropic, 
-           openai_model, gemini_model, anthropic_model, special_analysis, mechanistic_interpretability, technical_ai_safety,
+           openai_model, gemini_model, anthropic_model, special_analysis, custom_threshold, custom_batch_size, custom_batch_number, 
+           custom_prompt_batch_size, mechanistic_interpretability, technical_ai_safety, 
            design_automation, design_reference_paper, design_techniques, design_categories):
+    print(f"\n===== STARTING PAPER ANALYSIS =====")
+    print(f"Topic: {topic}")
+    print(f"Research interests: {interest[:100]}...")
+    print(f"Using threshold: {custom_threshold}")
+    print(f"Providers: OpenAI={use_openai}, Gemini={use_gemini}, Claude={use_anthropic}")
+    print(f"UI Batch size: {custom_batch_size} papers")
+    print(f"Prompt batch size: {custom_prompt_batch_size} papers per prompt")
     if not topic:
         raise gr.Error("You must choose a topic.")
     if topic == "Physics":
@@ -480,12 +524,44 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
     
     # Get papers based on categories
     if categories:
-        papers = get_papers(abbr)
-        papers = [
-            t for t in papers
-            if bool(set(process_subject_fields(t['subjects'])) & set(categories))][:4]
+        all_papers = get_papers(abbr)
+        all_papers = [
+            t for t in all_papers
+            if bool(set(process_subject_fields(t['subjects'])) & set(categories))]
+        print(f"Found {len(all_papers)} papers matching categories: {categories}")
     else:
-        papers = get_papers(abbr, limit=4)
+        all_papers = get_papers(abbr)
+        print(f"Found {len(all_papers)} papers for topic: {topic}")
+    
+    # Process all papers at once if requested
+    process_all = custom_batch_size == 0  # Special value 0 means process all
+    
+    total_papers = len(all_papers)
+    if process_all:
+        # Use all papers
+        papers = all_papers
+        print(f"Processing all {total_papers} papers at once")
+    else:
+        # Use batch parameters from UI
+        batch_size = int(custom_batch_size)
+        num_batches = (total_papers + batch_size - 1) // batch_size  # Ceiling division
+        
+        # Make sure batch number is valid
+        max_batch = num_batches
+        batch_number = min(int(custom_batch_number), max_batch)
+        if batch_number < 1:
+            batch_number = 1
+        
+        print(f"Will process papers in {num_batches} batches of {batch_size}")
+        print(f"Currently processing batch {batch_number} of {num_batches}")
+        
+        # Calculate start and end indices for the current batch
+        start_idx = (batch_number - 1) * batch_size
+        end_idx = min(start_idx + batch_size, total_papers)
+        
+        # Get the current batch of papers
+        papers = all_papers[start_idx:end_idx]
+        print(f"Processing batch {batch_number}/{num_batches} with {len(papers)} papers (papers {start_idx+1}-{end_idx} out of {total_papers})")
     
     if interest:
         # Build list of providers to use
@@ -561,8 +637,8 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                     papers,
                     query={"interest": interest},
                     model_name=openai_model,
-                    threshold_score=0,  # We'll filter later
-                    num_paper_in_prompt=2
+                    threshold_score=int(custom_threshold),  # Apply threshold immediately
+                    num_paper_in_prompt=int(custom_prompt_batch_size)  # Use the user-specified prompt batch size
                 )
                 hallucination = hallucination or hallu
                 relevancy.extend(openai_results)
@@ -598,9 +674,13 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
         
         print(f"Total papers after analysis: {len(relevancy)}")
         
-        # Filter papers by threshold from config
-        threshold = config.get("threshold", 2)
-        relevancy = filter_papers_by_threshold(relevancy, threshold)
+        # Papers are already filtered by threshold during LLM response processing
+        # This is now just a safety check to ensure we didn't miss any
+        threshold_value = int(custom_threshold) if custom_threshold is not None else config.get("threshold", 2)
+        print(f"Using relevancy threshold: {threshold_value}")
+        print(f"Papers before final threshold check: {len(relevancy)}")
+        relevancy = filter_papers_by_threshold(relevancy, threshold_value)
+        print(f"Papers after final threshold check: {len(relevancy)}")
         
         # Add design automation information if requested
         if design_automation and relevancy:
@@ -738,407 +818,19 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
 
 def change_subsubject(subject, physics_subject):
     if subject != "Physics":
-        return gr.Dropdown.update(choices=categories_map[subject], value=[], visible=True)
+        return {"choices": categories_map[subject], "value": [], "visible": True}
     else:
         if physics_subject and not isinstance(physics_subject, list):
-            return gr.Dropdown.update(choices=categories_map[physics_subject], value=[], visible=True)
+            return {"choices": categories_map[physics_subject], "value": [], "visible": True}
         else:
-            return gr.Dropdown.update(choices=[], value=[], visible=False)
+            return {"choices": [], "value": [], "visible": False}
 
 
 def change_physics(subject):
     if subject != "Physics":
-        return gr.Dropdown.update(visible=False, value=None)
+        return {"visible": False, "value": None}
     else:
-        return gr.Dropdown.update(choices=list(physics_topics.keys()), visible=True)
-
-
-def test(email, topic, physics_topic, categories, interest, key, 
-         use_openai, use_gemini, use_anthropic, openai_model, gemini_model, anthropic_model,
-         special_analysis, mechanistic_interpretability, technical_ai_safety,
-         design_automation, design_reference_paper, design_techniques, design_categories):
-    if not email: raise gr.Error("Set your email")
-    if not key: raise gr.Error("Set your SendGrid key")
-    if topic == "Physics":
-        if isinstance(physics_topic, list):
-            raise gr.Error("You must choose a physics topic.")
-        topic = physics_topic
-        abbr = physics_topics[topic]
-    else:
-        abbr = topics[topic]
-        
-    # Check if at least one model is selected
-    if not (use_openai or use_gemini or use_anthropic):
-        raise gr.Error("You must select at least one model provider (OpenAI, Gemini, or Claude)")
-        
-    if categories:
-        papers = get_papers(abbr)
-        papers = [
-            t for t in papers
-            if bool(set(process_subject_fields(t['subjects'])) & set(categories))][:4]
-    else:
-        papers = get_papers(abbr, limit=4)
-        
-    if interest:
-        # Build list of providers to use
-        providers = []
-        model_names = {}
-        
-        if use_openai:
-            if not model_manager.is_provider_available(ModelProvider.OPENAI):
-                if not openai.api_key:
-                    raise gr.Error("Set your OpenAI API key in the OpenAI tab first")
-                else:
-                    model_manager.register_openai(openai.api_key)
-            providers.append(ModelProvider.OPENAI)
-            model_names[ModelProvider.OPENAI] = openai_model
-            
-        if use_gemini:
-            if not model_manager.is_provider_available(ModelProvider.GEMINI):
-                raise gr.Error("Set your Gemini API key in the Gemini tab first")
-            providers.append(ModelProvider.GEMINI)
-            model_names[ModelProvider.GEMINI] = gemini_model
-            
-        if use_anthropic:
-            if not model_manager.is_provider_available(ModelProvider.ANTHROPIC):
-                raise gr.Error("Set your Anthropic API key in the Anthropic tab first")
-            providers.append(ModelProvider.ANTHROPIC)
-            model_names[ModelProvider.ANTHROPIC] = anthropic_model
-            
-        # Check if we need to find design automation papers
-        if design_automation:
-            # Filter for design automation papers
-            design_papers = [p for p in papers if is_design_automation_paper(p)]
-            
-            # Filter by techniques if specified
-            if design_techniques:
-                filtered_papers = []
-                for paper in design_papers:
-                    paper_techniques = analyze_design_techniques(paper)
-                    if any(technique in design_techniques for technique in paper_techniques):
-                        filtered_papers.append(paper)
-                design_papers = filtered_papers if filtered_papers else design_papers
-                
-            # Filter by categories if specified
-            if design_categories:
-                filtered_papers = []
-                for paper in design_papers:
-                    paper_category = categorize_design_paper(paper)
-                    if any(category in paper_category for category in design_categories):
-                        filtered_papers.append(paper)
-                design_papers = filtered_papers if filtered_papers else design_papers
-                
-            # Find related papers if reference paper is specified
-            if design_reference_paper:
-                related_papers = get_related_design_papers(design_reference_paper, papers)
-                if related_papers:
-                    design_papers = related_papers
-            
-            # Use these papers if we found any, otherwise fallback to regular papers
-            if design_papers:
-                papers = design_papers
-        
-        # Process papers directly instead of using model_manager
-        print("\n===== ANALYZING PAPERS =====")
-        print(f"Processing {len(papers)} papers...")
-        relevancy = []
-        hallucination = False
-        
-        # Use OpenAI if selected
-        if use_openai and model_manager.is_provider_available(ModelProvider.OPENAI):
-            try:
-                # Import directly to avoid circular imports
-                from relevancy import generate_relevance_score
-                openai_results, hallu = generate_relevance_score(
-                    papers,
-                    query={"interest": interest},
-                    model_name=openai_model,
-                    threshold_score=0,  # We'll filter later
-                    num_paper_in_prompt=2
-                )
-                hallucination = hallucination or hallu
-                relevancy.extend(openai_results)
-                print(f"OpenAI analysis added {len(openai_results)} papers")
-            except Exception as e:
-                print(f"Error during OpenAI analysis: {e}")
-        
-        # Use Gemini if selected and no papers yet
-        if use_gemini and model_manager.is_provider_available(ModelProvider.GEMINI) and len(relevancy) == 0:
-            try:
-                # Import directly to avoid circular imports
-                from gemini_utils import analyze_papers_with_gemini
-                gemini_papers = analyze_papers_with_gemini(
-                    papers,
-                    query={"interest": interest},
-                    model_name=gemini_model
-                )
-                # Process papers to ensure they have the right fields
-                for paper in gemini_papers:
-                    if 'gemini_analysis' in paper:
-                        # Copy all fields from gemini_analysis to the paper object
-                        for key, value in paper['gemini_analysis'].items():
-                            paper[key] = value
-                
-                relevancy.extend(gemini_papers)
-                print(f"Gemini analysis added {len(gemini_papers)} papers")
-            except Exception as e:
-                print(f"Error during Gemini analysis: {e}")
-                
-        # Use Anthropic if selected and no papers yet
-        if use_anthropic and model_manager.is_provider_available(ModelProvider.ANTHROPIC) and len(relevancy) == 0:
-            print("Anthropic/Claude analysis not yet implemented")
-        
-        print(f"Total papers after analysis: {len(relevancy)}")
-        
-        # Filter papers by threshold from config
-        threshold = config.get("threshold", 2)
-        relevancy = filter_papers_by_threshold(relevancy, threshold)
-        
-        # Add design automation information if requested
-        if design_automation and relevancy:
-            for paper in relevancy:
-                paper["design_category"] = categorize_design_paper(paper)
-                paper["design_techniques"] = analyze_design_techniques(paper)
-                paper["design_metrics"] = extract_design_metrics(paper)
-                
-                # Perform detailed design automation analysis on highest scored papers
-                if paper.get("Relevancy score", 0) >= 7 and (use_openai or use_gemini or use_anthropic):
-                    # Select provider for design analysis
-                    provider = None
-                    model = None
-                    
-                    if use_openai and model_manager.is_provider_available(ModelProvider.OPENAI):
-                        provider = ModelProvider.OPENAI
-                        model = openai_model
-                    elif use_gemini and model_manager.is_provider_available(ModelProvider.GEMINI):
-                        provider = ModelProvider.GEMINI
-                        model = gemini_model
-                    elif use_anthropic and model_manager.is_provider_available(ModelProvider.ANTHROPIC):
-                        provider = ModelProvider.ANTHROPIC
-                        model = anthropic_model
-                        
-                    if provider:
-                        design_analysis = model_manager.analyze_design_automation(
-                            paper,
-                            provider=provider,
-                            model_name=model
-                        )
-                        if design_analysis and "error" not in design_analysis:
-                            paper["design_analysis"] = design_analysis
-        
-        # Create the email body with better styling
-        paper_bodies = []
-        for paper in relevancy:
-            paper_html = f'''
-            <div style="margin-bottom: 30px; border-bottom: 1px solid #ddd; padding-bottom: 20px;">
-                <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">
-                    <a href="{paper["main_page"]}" style="color: #2980b9; text-decoration: none;">{paper["title"]}</a>
-                </div>
-                <div style="margin-bottom: 5px;"><b>Subject:</b> {paper["subjects"]}</div>
-                <div style="margin-bottom: 5px;"><b>Authors:</b> {paper["authors"]}</div>
-                <div style="margin-bottom: 10px; font-weight: bold; color: #e74c3c;">
-                    <b>Score:</b> {paper["Relevancy score"]}
-                </div>
-                
-                <div style="margin: 15px 0; background-color: #f5f9f9; padding: 15px; border-left: 4px solid #2ecc71;">
-                    <b>Reason for Relevance:</b> {paper["Reasons for match"]}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Key Innovations:</div>
-                    {paper.get("Key innovations", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Critical Analysis:</div>
-                    {paper.get("Critical analysis", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Goal:</div>
-                    {paper.get("Goal", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Data:</div>
-                    {paper.get("Data", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Methodology:</div>
-                    {paper.get("Methodology", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0f8ff;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Implementation Details:</div>
-                    {paper.get("Implementation details", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f5f5f5;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Experiments & Results:</div>
-                    {paper.get("Experiments & Results", "Not provided")}
-                </div>
-                
-                <div style="margin-bottom: 5px;"><b>Git:</b> {paper.get("Git", "Not provided")}</div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Discussion & Next Steps:</div>
-                    {paper.get("Discussion & Next steps", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Related Work:</div>
-                    {paper.get("Related work", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #f0fff0;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Practical Applications:</div>
-                    {paper.get("Practical applications", "Not provided")}
-                </div>
-                
-                <div style="margin: 15px 0; padding: 15px; background-color: #fdf5e6;">
-                    <div style="font-weight: bold; margin-bottom: 5px;">Key Takeaways:</div>
-                    {paper.get("Key takeaways", "Not provided")}
-                </div>
-            '''
-            
-            # Add design automation section if available
-            if design_automation and (paper.get("design_category") or paper.get("design_techniques")):
-                paper_html += f'''
-                <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 15px;">
-                    <h3>Design Automation Analysis</h3>
-                    <div style="margin-bottom: 5px;"><b>Design Category:</b> {paper.get("design_category", "")}</div>
-                    <div style="margin-bottom: 5px;"><b>Design Techniques:</b> {", ".join(paper.get("design_techniques", []))}</div>
-                    <div style="margin-bottom: 5px;"><b>Design Metrics:</b> {", ".join(paper.get("design_metrics", []))}</div>
-                '''
-                
-                if "design_analysis" in paper:
-                    paper_html += f'''
-                    <h4>Detailed Design Analysis</h4>
-                    <div style="margin-bottom: 5px;"><b>Design automation focus:</b> {paper.get("design_analysis", {}).get("Design automation focus", "Not provided")}</div>
-                    <div style="margin-bottom: 5px;"><b>Technical approach:</b> {paper.get("design_analysis", {}).get("Technical approach", "Not provided")}</div>
-                    <div style="margin-bottom: 5px;"><b>Visual outputs:</b> {paper.get("design_analysis", {}).get("Visual outputs", "Not provided")}</div>
-                    <div style="margin-bottom: 5px;"><b>Designer interaction:</b> {paper.get("design_analysis", {}).get("Designer interaction", "Not provided")}</div>
-                    <div style="margin-bottom: 5px;"><b>Real-world applicability:</b> {paper.get("design_analysis", {}).get("Real-world applicability", "Not provided")}</div>
-                    <div style="margin-bottom: 5px;"><b>Capabilities:</b> Replaceable tools: {", ".join(paper.get("design_analysis", {}).get("capabilities", {}).get("replaceable_tools", []))}, 
-                    Automation level: {paper.get("design_analysis", {}).get("capabilities", {}).get("automation_level", "Unknown")}</div>
-                    '''
-                
-                paper_html += '</div>'
-            
-            paper_html += '''
-                <div style="margin-top: 20px;">
-                    <a href="{}" style="color: #2980b9; text-decoration: none; margin-right: 15px;">PDF</a>
-                    <a href="{}" style="color: #2980b9; text-decoration: none;">arXiv</a>
-                </div>
-            </div>
-            '''.format(paper.get("pdf", paper.get("main_page", "#") + ".pdf"), paper.get("main_page", "#"))
-            
-            paper_bodies.append(paper_html)
-        
-        body = '''
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; }
-                a { color: #2980b9; text-decoration: none; }
-                a:hover { text-decoration: underline; }
-            </style>
-        </head>
-        <body>
-            <h1>ArXiv Digest Results</h1>
-        '''
-        
-        # Add warning for hallucinations
-        if hallucination:
-            body += '<p style="color: #e74c3c; font-weight: bold;">Warning: The model hallucinated some papers. We have tried to remove them, but the scores may not be accurate.</p>'
-        
-        # Add papers
-        body += ''.join(paper_bodies)
-        
-        body += '''
-        </body>
-        </html>
-        '''
-            
-        # Add specialized analysis if requested
-        if special_analysis and len(relevancy) > 0:
-            # Get topic clustering from Gemini if available
-            if use_gemini and model_manager.is_provider_available(ModelProvider.GEMINI):
-                try:
-                    clusters = get_topic_clustering(relevancy, model_name=gemini_model)
-                    cluster_info = "<h2>Topic Clusters</h2>"
-                    for i, cluster in enumerate(clusters.get("clusters", [])):
-                        cluster_info += f"<h3>Cluster {i+1}: {cluster.get('name')}</h3>"
-                        cluster_info += f"<p><b>Papers:</b> {', '.join([str(p) for p in cluster.get('papers', [])])}</p>"
-                        cluster_info += f"<p><b>Description:</b> {cluster.get('description')}</p>"
-                    
-                    # Add cluster info to the body
-                    body = cluster_info + "<hr>" + body
-                except Exception as e:
-                    body = f"<p><i>Error generating clusters: {str(e)}</i></p>" + body
-            
-            # Add specialized mechanistic interpretability analysis if requested
-            if mechanistic_interpretability and len(relevancy) > 0:
-                # Use the first available provider in order of preference
-                preferred_providers = [
-                    (ModelProvider.ANTHROPIC, anthropic_model if use_anthropic else None),
-                    (ModelProvider.OPENAI, openai_model if use_openai else None),
-                    (ModelProvider.GEMINI, gemini_model if use_gemini else None)
-                ]
-                
-                provider = None
-                model = None
-                for p, m in preferred_providers:
-                    if model_manager.is_provider_available(p) and m:
-                        provider = p
-                        model = m
-                        break
-                        
-                if provider:
-                    try:
-                        interp_analysis = model_manager.get_mechanistic_interpretability_analysis(
-                            relevancy[0],  # Analyze the most relevant paper
-                            provider=provider,
-                            model_name=model
-                        )
-                        
-                        interp_summary = "<h2>Mechanistic Interpretability Analysis</h2>"
-                        interp_summary += f"<h3>Analysis for paper: {relevancy[0]['title']}</h3>"
-                        
-                        for key, value in interp_analysis.items():
-                            if key != "error" and key != "raw_content":
-                                interp_summary += f"<p><b>{key}:</b> {value}</p>"
-                        
-                        # Add interpretability analysis to the body
-                        body = interp_summary + "<hr>" + body
-                    except Exception as e:
-                        body = f"<p><i>Error generating interpretability analysis: {str(e)}</i></p>" + body
-        
-        if hallucination:
-            body = "<p><strong style='color:red;'>Warning: The model hallucinated some papers. We have tried to remove them, but the scores may not be accurate.</strong></p><br>" + body
-    else:
-        body = "<br><br>".join([f'Title: <a href="{paper["main_page"]}">{paper["title"]}</a><br>Authors: {paper["authors"]}' for paper in papers])
-    
-    # Send email
-    sg = sendgrid.SendGridAPIClient(api_key=key)
-    from_email = Email(email)
-    to_email = To(email)
-    subject = "arXiv digest"
-    content = Content("text/html", body)
-    mail = Mail(from_email, to_email, subject, content)
-    mail_json = mail.get()
-
-    # Generate HTML report file
-    html_file = generate_html_report(relevancy if interest else papers, 
-                                   title=f"ArXiv Digest: {topic} papers")
-    
-    # Send an HTTP POST request to /mail/send
-    response = sg.client.mail.send.post(request_body=mail_json)
-    if response.status_code >= 200 and response.status_code <= 300:
-        return f"Success! Email sent and HTML report saved to: {html_file}"
-    else:
-        return f"Email sending failed ({response.status_code}), but HTML report saved to: {html_file}"
+        return {"choices": list(physics_topics.keys()), "visible": True}
 
 
 def register_openai_token(token):
@@ -1153,100 +845,163 @@ def register_anthropic_token(token):
     model_manager.register_anthropic(token)
 
 with gr.Blocks() as demo:
-    with gr.Row():
-        with gr.Column(scale=10):
-            with gr.Tabs():
-                with gr.TabItem("OpenAI"):
-                    openai_token = gr.Textbox(label="OpenAI API Key", type="password")
-                    openai_token.change(fn=register_openai_token, inputs=[openai_token])
-                
-                with gr.TabItem("Gemini"):
-                    gemini_token = gr.Textbox(label="Gemini API Key", type="password")
-                    gemini_token.change(fn=register_gemini_token, inputs=[gemini_token])
-                
-                with gr.TabItem("Anthropic"):
-                    anthropic_token = gr.Textbox(label="Anthropic API Key", type="password")
-                    anthropic_token.change(fn=register_anthropic_token, inputs=[anthropic_token])
+    with gr.Column():
+        with gr.Tabs():
+            with gr.TabItem("OpenAI"):
+                openai_token = gr.Textbox(label="OpenAI API Key", type="password")
+                openai_token.change(fn=register_openai_token, inputs=[openai_token])
             
-            subject = gr.Radio(
-                list(topics.keys()), label="Topic"
+            with gr.TabItem("Gemini"):
+                gemini_token = gr.Textbox(label="Gemini API Key", type="password")
+                gemini_token.change(fn=register_gemini_token, inputs=[gemini_token])
+            
+            with gr.TabItem("Anthropic"):
+                anthropic_token = gr.Textbox(label="Anthropic API Key", type="password")
+                anthropic_token.change(fn=register_anthropic_token, inputs=[anthropic_token])
+        
+        subject = gr.Radio(
+            list(topics.keys()), label="Topic"
+        )
+        # Simplified without dynamic updates
+        physics_subject = gr.Dropdown(list(physics_topics.keys()), value=list(physics_topics.keys())[0], 
+            multiselect=False, label="Physics category (only needed if Topic=Physics)", visible=True)
+        subsubject = gr.Dropdown(
+            [], value=[], multiselect=True, 
+            label="Subtopic (optional)", info="Optional. Leaving it empty will use all subtopics.", visible=True)
+
+        # Use interest from config.yaml as default value
+        interest = gr.Textbox(
+            label="A natural language description of what you are interested in. We will generate relevancy scores (1-10) and explanations for the papers in the selected topics according to this statement.", 
+            info="Press shift-enter or click the button below to update.", 
+            lines=7,
+            value=config.get("interest", "")
+        )
+        
+        with gr.Row():
+            use_openai = gr.Checkbox(label="Use OpenAI", value=True)
+            use_gemini = gr.Checkbox(label="Use Gemini", value=False)
+            use_anthropic = gr.Checkbox(label="Use Claude", value=False)
+        
+        with gr.Accordion("Advanced Settings", open=False):
+            openai_model = gr.Dropdown(["gpt-3.5-turbo-16k", "gpt-4", "gpt-4-turbo"], value="gpt-4", label="OpenAI Model")
+            gemini_model = gr.Dropdown(["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"], value="gemini-2.0-flash", label="Gemini Model")
+            anthropic_model = gr.Dropdown(["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"], value="claude-3-sonnet-20240229", label="Claude Model")
+            
+            # Always include specialized analysis by default
+            special_analysis = gr.Checkbox(label="Include specialized analysis for research topics", value=True)
+            
+            # Add threshold slider for relevancy filtering
+            threshold = gr.Slider(
+                minimum=0,
+                maximum=10,
+                value=config.get("threshold", 2),
+                step=1,
+                label="Relevancy Score Threshold",
+                info="Papers with scores below this value will be filtered out (default from config.yaml: " + str(config.get("threshold", 2)) + ")"
             )
-            physics_subject = gr.Dropdown(list(physics_topics.keys()), value=None, multiselect=False, label="Physics category", visible=False, info="")
-            subsubject = gr.Dropdown(
-                    [], value=[], multiselect=True, label="Subtopic", info="Optional. Leaving it empty will use all subtopics.", visible=False)
-            subject.change(fn=change_physics, inputs=[subject], outputs=physics_subject)
-            subject.change(fn=change_subsubject, inputs=[subject, physics_subject], outputs=subsubject)
-            physics_subject.change(fn=change_subsubject, inputs=[subject, physics_subject], outputs=subsubject)
-
-            interest = gr.Textbox(label="A natural language description of what you are interested in. We will generate relevancy scores (1-10) and explanations for the papers in the selected topics according to this statement.", info="Press shift-enter or click the button below to update.", lines=7)
             
+            # Add batch processing options
             with gr.Row():
-                use_openai = gr.Checkbox(label="Use OpenAI", value=True)
-                use_gemini = gr.Checkbox(label="Use Gemini", value=False)
-                use_anthropic = gr.Checkbox(label="Use Claude", value=False)
+                batch_size = gr.Slider(
+                    minimum=0,
+                    maximum=100,
+                    value=40,  # Process 40 papers by default
+                    step=10,
+                    label="UI Batch Size",
+                    info="Number of papers to select for analysis (set to 0 to process ALL papers at once)"
+                )
+                batch_number = gr.Slider(
+                    minimum=1,
+                    maximum=21,  # This will be updated dynamically
+                    value=1,
+                    step=1,
+                    label="Batch Number",
+                    info="Which batch to analyze (only used when Batch Size > 0)"
+                )
             
-            with gr.Accordion("Advanced Settings", open=False):
-                openai_model = gr.Dropdown(["gpt-3.5-turbo-16k", "gpt-4", "gpt-4-turbo"], value="gpt-4", label="OpenAI Model")
-                gemini_model = gr.Dropdown(["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"], value="gemini-2.0-flash", label="Gemini Model")
-                anthropic_model = gr.Dropdown(["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"], value="claude-3-sonnet-20240229", label="Claude Model")
-                
-                special_analysis = gr.Checkbox(label="Include specialized analysis for research topics", value=False)
-                mechanistic_interpretability = gr.Checkbox(label="Include mechanistic interpretability analysis", value=False)
-                technical_ai_safety = gr.Checkbox(label="Include technical AI safety analysis", value=False)
-                
-                with gr.Accordion("Graphic Design Automation Papers", open=False):
-                    design_automation = gr.Checkbox(label="Find graphic design automation papers", value=False)
-                    design_reference_paper = gr.Textbox(
-                        label="Reference paper ID (optional, e.g., '2412.04237' from VASCAR paper)",
-                        placeholder="Enter arXiv paper ID to find similar papers"
-                    )
-                    design_techniques = gr.CheckboxGroup(
-                        choices=[
-                            "Generative Adversarial Networks", "Diffusion Models", 
-                            "Transformers", "Large Language Models", "Computer Vision",
-                            "Neural Style Transfer", "Reinforcement Learning"
-                        ],
-                        label="Design automation techniques to focus on (optional)"
-                    )
-                    design_categories = gr.CheckboxGroup(
-                        choices=[
-                            "Layout Generation", "UI/UX Design", "Graphic Design",
-                            "Image Manipulation", "Design Tools", "3D Design",
-                            "Multimodal Design"
-                        ],
-                        label="Design categories to focus on (optional)"
-                    )
-                
-            sample_btn = gr.Button("Generate Digest")
-            sample_output = gr.Textbox(label="Results for your configuration.", info="For runtime purposes, this is only done on a small subset of recent papers in the topic you have selected. Papers will not be filtered by relevancy, only sorted on a scale of 1-10.")
-        with gr.Column(scale=4):  # Changed from 0.40 to 4
-            with gr.Group():  # Changed from gr.Box to gr.Group
-                title = gr.Markdown(
-                    """
-                    # Email Setup, Optional
-                    Send an email to the below address using the configuration on the right. Requires a sendgrid token. These values are not needed to use the right side of this page.
-
-                    To create a scheduled job for this, see our [Github Repository](https://github.com/AutoLLM/ArxivDigest)
-                    """)
-                email = gr.Textbox(label="Email address", type="email", placeholder="")
-                sendgrid_token = gr.Textbox(label="SendGrid API Key", type="password")
-                with gr.Row():
-                    test_btn = gr.Button("Send email")
-                    output = gr.Textbox(show_label=False, placeholder="email status")
+            # Add LLM prompt batching control
+            prompt_batch_size = gr.Slider(
+                minimum=1,
+                maximum=20,
+                value=10,
+                step=1,
+                label="Prompt Batch Size",
+                info="Number of papers to include in each LLM prompt (higher = better comparative analysis)"
+            )
+            
+            # Hidden fields for mechanistic interpretability and technical AI safety (not shown in UI but needed for function calls)
+            mechanistic_interpretability = gr.Checkbox(label="Include mechanistic interpretability analysis", value=False, visible=False)
+            technical_ai_safety = gr.Checkbox(label="Include technical AI safety analysis", value=False, visible=False)
+            
+            # Hidden fields for design automation (not shown in UI but needed for function calls)
+            design_automation = gr.Checkbox(label="Find graphic design automation papers", value=False, visible=False)
+            design_reference_paper = gr.Textbox(
+                label="Reference paper ID",
+                value="",
+                visible=False
+            )
+            design_techniques = gr.CheckboxGroup(
+                choices=[],
+                value=[],
+                visible=False
+            )
+            design_categories = gr.CheckboxGroup(
+                choices=[],
+                value=[],
+                visible=False
+            )
+            
+            # Hidden fields for email (not shown in UI but needed for function calls)
+            email = gr.Textbox(label="Email address", type="email", placeholder="", visible=False)
+            sendgrid_token = gr.Textbox(label="SendGrid API Key", type="password", visible=False)
+            
+        sample_btn = gr.Button("Generate Digest")
+        sample_output = gr.Textbox(label="Results for your configuration.", info="For runtime purposes, this is only done on a small subset of recent papers in the topic you have selected. Papers will not be filtered by relevancy, only sorted on a scale of 1-10.")
+        
     # Define all input fields
     all_inputs = [
         email, subject, physics_subject, subsubject, interest, 
         use_openai, use_gemini, use_anthropic,
         openai_model, gemini_model, anthropic_model,
-        special_analysis, mechanistic_interpretability, technical_ai_safety,
+        special_analysis, threshold, batch_size, batch_number, prompt_batch_size,
+        mechanistic_interpretability, technical_ai_safety,
         design_automation, design_reference_paper, design_techniques, design_categories
     ]
     
-    # Email button
-    test_btn.click(
-        fn=test, 
-        inputs=[email, subject, physics_subject, subsubject, interest, sendgrid_token] + all_inputs[5:],
-        outputs=output
+    # Update batch number slider based on batch size
+    def update_batch_number_max(batch_size_val, current_topic, physics_cat, categories_list):
+        # If batch size is 0 (process all), disable batch number slider
+        if batch_size_val == 0:
+            return {"visible": False, "value": 1}
+            
+        # Calculate the maximum batch number based on paper count and batch size
+        if current_topic == "Physics":
+            abbr = physics_topics[physics_cat]
+        else:
+            abbr = topics[current_topic]
+            
+        # Get papers
+        if categories_list:
+            papers = get_papers(abbr)
+            papers = [
+                t for t in papers
+                if bool(set(process_subject_fields(t['subjects'])) & set(categories_list))]
+            total_papers = len(papers)
+        else:
+            papers = get_papers(abbr)
+            total_papers = len(papers)
+            
+        # Calculate number of batches
+        num_batches = (total_papers + batch_size_val - 1) // batch_size_val
+        
+        # Return updated slider properties
+        return {"maximum": max(1, num_batches), "value": 1, "visible": True}
+    
+    # Update batch number max when batch size or topic changes
+    batch_size.change(
+        fn=update_batch_number_max,
+        inputs=[batch_size, subject, physics_subject, subsubject],
+        outputs=[batch_number]
     )
     
     # Sample button
@@ -1261,10 +1016,7 @@ with gr.Blocks() as demo:
     gemini_token.change(fn=register_gemini_token, inputs=[gemini_token])
     anthropic_token.change(fn=register_anthropic_token, inputs=[anthropic_token])
     
-    # Dynamic updates based on selection changes
-    subject.change(fn=sample, inputs=all_inputs, outputs=sample_output)
-    physics_subject.change(fn=sample, inputs=all_inputs, outputs=sample_output)
-    subsubject.change(fn=sample, inputs=all_inputs, outputs=sample_output)
+    # Only allow updates when the button is clicked or interest is submitted directly
     interest.submit(fn=sample, inputs=all_inputs, outputs=sample_output)
 
 demo.launch(show_api=False)
