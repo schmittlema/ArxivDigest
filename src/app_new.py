@@ -217,7 +217,7 @@ categories_map = {
 }
 
 
-def generate_html_report(papers, title="ArXiv Digest Results", topic=None, category=None):
+def generate_html_report(papers, title="ArXiv Digest Results", topic=None, category=None, query=None):
     """Generate an HTML report for the papers and save to file.
     
     Args:
@@ -225,6 +225,7 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
         title: Title for the HTML report
         topic: Optional topic name for filename
         category: Optional category name for filename
+        query: Optional dictionary with interest field for research interests
         
     Returns:
         Path to the HTML file
@@ -268,6 +269,7 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
             a {{ color: #2980b9; text-decoration: none; }}
             a:hover {{ text-decoration: underline; }}
             .stats {{ background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
+            .interests {{ background-color: #e6f7ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #1890ff; }}
             .footer {{ margin-top: 40px; font-size: 12px; color: #7f8c8d; text-align: center; padding: 20px; }}
             h1 {{ color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 15px; margin-bottom: 30px; }}
             .section {{ margin: 15px 0; padding: 15px; background-color: #f8f9fa; border-radius: 5px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }}
@@ -295,6 +297,12 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
             <p>Generated on {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
             <p>Found {len(papers)} papers</p>
             <p>Topics: {topic or "All"}</p>
+            <p>Threshold: {config.get("threshold", "Not specified")}</p>
+        </div>
+        
+        <div class="interests">
+            <h3>Research Interests:</h3>
+            <pre>{query.get('interest', 'Not specified')}</pre>
         </div>
         
         <!-- Create table of contents -->
@@ -501,13 +509,15 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
            openai_model, gemini_model, anthropic_model, special_analysis, custom_threshold, custom_batch_size, custom_batch_number, 
            custom_prompt_batch_size, mechanistic_interpretability, technical_ai_safety, 
            design_automation, design_reference_paper, design_techniques, design_categories):
-    print(f"\n===== STARTING PAPER ANALYSIS =====")
+    print(f"\n===== STARTING TWO-STAGE PAPER ANALYSIS =====")
     print(f"Topic: {topic}")
     print(f"Research interests: {interest[:100]}...")
     print(f"Using threshold: {custom_threshold}")
-    print(f"Providers: OpenAI={use_openai}, Gemini={use_gemini}, Claude={use_anthropic}")
+    print(f"Stage 1 (Filtering): OpenAI {openai_model}")
+    print(f"Stage 2 (Analysis): {'Gemini ' + gemini_model if use_gemini else 'OpenAI ' + openai_model}")
     print(f"UI Batch size: {custom_batch_size} papers")
     print(f"Prompt batch size: {custom_prompt_batch_size} papers per prompt")
+    print(f"===============================================")
     if not topic:
         raise gr.Error("You must choose a topic.")
     if topic == "Physics":
@@ -533,35 +543,15 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
         all_papers = get_papers(abbr)
         print(f"Found {len(all_papers)} papers for topic: {topic}")
     
-    # Process all papers at once if requested
-    process_all = custom_batch_size == 0  # Special value 0 means process all
-    
+    # Always process all papers
+    papers = all_papers
     total_papers = len(all_papers)
-    if process_all:
-        # Use all papers
-        papers = all_papers
-        print(f"Processing all {total_papers} papers at once")
-    else:
-        # Use batch parameters from UI
-        batch_size = int(custom_batch_size)
-        num_batches = (total_papers + batch_size - 1) // batch_size  # Ceiling division
-        
-        # Make sure batch number is valid
-        max_batch = num_batches
-        batch_number = min(int(custom_batch_number), max_batch)
-        if batch_number < 1:
-            batch_number = 1
-        
-        print(f"Will process papers in {num_batches} batches of {batch_size}")
-        print(f"Currently processing batch {batch_number} of {num_batches}")
-        
-        # Calculate start and end indices for the current batch
-        start_idx = (batch_number - 1) * batch_size
-        end_idx = min(start_idx + batch_size, total_papers)
-        
-        # Get the current batch of papers
-        papers = all_papers[start_idx:end_idx]
-        print(f"Processing batch {batch_number}/{num_batches} with {len(papers)} papers (papers {start_idx+1}-{end_idx} out of {total_papers})")
+    print(f"Processing all {total_papers} papers")
+    
+    # Fixed parameters:
+    # - Stage 1: 8 papers per batch for relevancy scoring (title & abstract only)
+    # - Stage 2: Detailed analysis of papers that meet threshold
+    # - Minimum 10 papers (will include top-scoring papers below threshold if needed)
     
     if interest:
         # Build list of providers to use
@@ -638,7 +628,8 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                     query={"interest": interest},
                     model_name=openai_model,
                     threshold_score=int(custom_threshold),  # Apply threshold immediately
-                    num_paper_in_prompt=int(custom_prompt_batch_size)  # Use the user-specified prompt batch size
+                    num_paper_in_prompt=int(custom_prompt_batch_size),  # Use the user-specified prompt batch size
+                    stage2_model=gemini_model if use_gemini else "gpt-4-turbo"  # Use Gemini for stage 2 if selected
                 )
                 hallucination = hallucination or hallu
                 relevancy.extend(openai_results)
@@ -773,7 +764,12 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                 interpretability_info = ""
                 
             # Generate HTML report
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
+            html_file = generate_html_report(
+                relevancy, 
+                title=f"ArXiv Digest: {topic} papers",
+                topic=topic,
+                query={"interest": interest}
+            )
             
             # Create summary texts for display
             summary_texts = []
@@ -792,7 +788,12 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             return result_text + f"\n\nHTML report saved to: {html_file}"
         else:
             # Generate HTML report
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
+            html_file = generate_html_report(
+                relevancy, 
+                title=f"ArXiv Digest: {topic} papers",
+                topic=topic,
+                query={"interest": interest}
+            )
             
             # Create summary texts for display
             summary_texts = []
@@ -811,7 +812,12 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             return result_text + f"\n\nHTML report saved to: {html_file}"
     else:
         # Generate HTML report for basic results
-        html_file = generate_html_report(papers, title=f"ArXiv Digest: {topic} papers")
+        html_file = generate_html_report(
+            papers, 
+            title=f"ArXiv Digest: {topic} papers",
+            topic=topic,
+            query={"interest": interest}
+        )
         result_text = "\n\n".join(f"Title: {paper['title']}\nAuthors: {paper['authors']}" for paper in papers)
         return result_text + f"\n\nHTML report saved to: {html_file}"
 
@@ -900,34 +906,25 @@ with gr.Blocks() as demo:
                 info="Papers with scores below this value will be filtered out (default from config.yaml: " + str(config.get("threshold", 2)) + ")"
             )
             
-            # Add batch processing options
-            with gr.Row():
-                batch_size = gr.Slider(
-                    minimum=0,
-                    maximum=100,
-                    value=40,  # Process 40 papers by default
-                    step=10,
-                    label="UI Batch Size",
-                    info="Number of papers to select for analysis (set to 0 to process ALL papers at once)"
-                )
-                batch_number = gr.Slider(
-                    minimum=1,
-                    maximum=21,  # This will be updated dynamically
-                    value=1,
-                    step=1,
-                    label="Batch Number",
-                    info="Which batch to analyze (only used when Batch Size > 0)"
-                )
+            # Hidden fields with fixed defaults (not shown in UI)
+            batch_size = gr.Number(value=0, visible=False)  # 0 = process all
+            batch_number = gr.Number(value=1, visible=False)
+            prompt_batch_size = gr.Number(value=8, visible=False)  # Fixed at 8 papers per prompt
             
-            # Add LLM prompt batching control
-            prompt_batch_size = gr.Slider(
-                minimum=1,
-                maximum=20,
-                value=10,
-                step=1,
-                label="Prompt Batch Size",
-                info="Number of papers to include in each LLM prompt (higher = better comparative analysis)"
-            )
+            # Multi-stage processing info
+            gr.Markdown("""
+            ### Two-Stage Paper Processing
+            1. **Stage 1**: OpenAI performs quick relevancy filtering based on title & abstract only
+            2. **Stage 2**: Gemini (if selected) performs detailed analysis on papers that passed threshold
+            """)
+            
+            # Add two-stage processing explanation
+            gr.Markdown("""
+            **Efficiency Benefits**:
+            - Filtering happens before downloading full content
+            - Only relevant papers get detailed analysis
+            - Optimizes token usage and response time
+            """, visible=True)
             
             # Hidden fields for mechanistic interpretability and technical AI safety (not shown in UI but needed for function calls)
             mechanistic_interpretability = gr.Checkbox(label="Include mechanistic interpretability analysis", value=False, visible=False)
@@ -968,41 +965,7 @@ with gr.Blocks() as demo:
         design_automation, design_reference_paper, design_techniques, design_categories
     ]
     
-    # Update batch number slider based on batch size
-    def update_batch_number_max(batch_size_val, current_topic, physics_cat, categories_list):
-        # If batch size is 0 (process all), disable batch number slider
-        if batch_size_val == 0:
-            return {"visible": False, "value": 1}
-            
-        # Calculate the maximum batch number based on paper count and batch size
-        if current_topic == "Physics":
-            abbr = physics_topics[physics_cat]
-        else:
-            abbr = topics[current_topic]
-            
-        # Get papers
-        if categories_list:
-            papers = get_papers(abbr)
-            papers = [
-                t for t in papers
-                if bool(set(process_subject_fields(t['subjects'])) & set(categories_list))]
-            total_papers = len(papers)
-        else:
-            papers = get_papers(abbr)
-            total_papers = len(papers)
-            
-        # Calculate number of batches
-        num_batches = (total_papers + batch_size_val - 1) // batch_size_val
-        
-        # Return updated slider properties
-        return {"maximum": max(1, num_batches), "value": 1, "visible": True}
-    
-    # Update batch number max when batch size or topic changes
-    batch_size.change(
-        fn=update_batch_number_max,
-        inputs=[batch_size, subject, physics_subject, subsubject],
-        outputs=[batch_number]
-    )
+    # No dynamic batch handling needed - using fixed defaults
     
     # Sample button
     sample_btn.click(

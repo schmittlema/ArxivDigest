@@ -18,25 +18,45 @@ import utils
 from paths import DATA_DIR
 
 
-def encode_prompt(query, prompt_papers):
-    """Encode multiple prompt instructions into a single string."""
-    prompt = open("src/relevancy_prompt.txt").read() + "\n"
+def encode_prompt(query, prompt_papers, include_content=True):
+    """
+    Encode multiple prompt instructions into a single string.
+    
+    Args:
+        query: Dictionary with interest field
+        prompt_papers: List of paper dictionaries
+        include_content: Whether to include the full content field (False for stage 1 filtering)
+    """
+    # Use different prompt templates for each stage
+    if include_content:
+        # Stage 2: Full analysis with content
+        prompt = open("src/relevancy_prompt.txt").read() + "\n"
+    else:
+        # Stage 1: Quick relevancy scoring with just title and abstract
+        prompt = open("src/relevancy_filter_prompt.txt").read() + "\n"
+    
     prompt += query['interest']
 
     for idx, task_dict in enumerate(prompt_papers):
-        (title, authors, abstract, content) = task_dict["title"], task_dict["authors"], task_dict["abstract"], task_dict["content"]
+        (title, authors, abstract) = task_dict["title"], task_dict["authors"], task_dict["abstract"]
         if not title:
             raise
         prompt += f"###\n"
         prompt += f"{idx + 1}. Title: {title}\n"
         prompt += f"{idx + 1}. Authors: {authors}\n"
         prompt += f"{idx + 1}. Abstract: {abstract}\n"
-        prompt += f"{idx + 1}. Content: {content}\n"
+        
+        # Only include content in stage 2
+        if include_content and "content" in task_dict:
+            content = task_dict["content"]
+            prompt += f"{idx + 1}. Content: {content}\n"
+            
     prompt += f"\n Generate response:\n1."
     
-    # Just log the number of papers for information
+    # Just log the number of papers and stage information
     num_papers = len(prompt_papers)
-    print(f"Sending prompt with {num_papers} papers for analysis")
+    stage = "Stage 2 (full analysis)" if include_content else "Stage 1 (relevancy filtering)"
+    print(f"Sending prompt for {stage} with {num_papers} papers")
     
     return prompt
 
@@ -50,31 +70,52 @@ def is_json(myjson):
 
 def extract_json_from_string(text):
     """
-    Attempt to extract JSON from a string by finding '{'...'}'
+    Improved JSON extraction that can handle multiple JSON objects in different formats
     """
-    # Find the outermost JSON object
-    stack = []
-    start_idx = -1
+    # Clean up the text - remove markdown code blocks and backticks
+    text = text.replace("```json", "").replace("```", "").strip()
     
-    for i, char in enumerate(text):
-        if char == '{' and start_idx == -1:
-            start_idx = i
-            stack.append(char)
-        elif char == '{':
-            stack.append(char)
-        elif char == '}' and stack:
-            stack.pop()
-            if not stack and start_idx != -1:
-                # Found complete JSON object
-                json_str = text[start_idx:i+1]
-                try:
-                    parsed = json.loads(json_str)
-                    return parsed
-                except json.JSONDecodeError:
-                    # If this one fails, continue looking
-                    start_idx = -1
+    # Try to find all JSON objects in the text
+    json_objects = []
     
-    return None
+    # First, try to split by numbered lines (1., 2., etc.)
+    numbered_pattern = re.compile(r'^\d+\.\s*(\{.*?\})', re.DOTALL | re.MULTILINE)
+    numbered_matches = numbered_pattern.findall(text)
+    
+    if numbered_matches:
+        # Found numbered JSON objects
+        for json_str in numbered_matches:
+            try:
+                parsed = json.loads(json_str)
+                json_objects.append(parsed)
+            except json.JSONDecodeError:
+                pass
+    
+    # If we didn't find numbered objects, look for direct JSON objects
+    if not json_objects:
+        # Find all potential JSON objects
+        stack = []
+        start_indices = []
+        
+        for i, char in enumerate(text):
+            if char == '{' and (not stack):
+                start_indices.append(i)
+                stack.append(char)
+            elif char == '{':
+                stack.append(char)
+            elif char == '}' and stack:
+                stack.pop()
+                if not stack:
+                    # Found a complete JSON object
+                    json_str = text[start_indices.pop():i+1]
+                    try:
+                        parsed = json.loads(json_str)
+                        json_objects.append(parsed)
+                    except json.JSONDecodeError:
+                        pass
+    
+    print(f"Found {len(json_objects)} JSON objects in the response")
+    return json_objects
 
 def post_process_chat_gpt_response(paper_data, response, threshold_score=0):
     """
@@ -106,10 +147,22 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=0):
     # Print the raw content for debugging
     print(f"\nRaw content:\n{content}\n")
     
-    # Try to extract JSON directly from the content
-    analysis = extract_json_from_string(content)
-    if analysis and "Relevancy score" in analysis:
-        score_items = [analysis]
+    # Try to extract multiple JSON objects from the content
+    json_objects = extract_json_from_string(content)
+    
+    if json_objects:
+        # Found JSON objects using our improved extractor
+        score_items = []
+        for obj in json_objects:
+            if "Relevancy score" in obj or "relevancy score" in obj:
+                # Normalize key names (handle case sensitivity)
+                normalized_obj = {}
+                for key, value in obj.items():
+                    if key.lower() == "relevancy score":
+                        normalized_obj["Relevancy score"] = value
+                    else:
+                        normalized_obj[key] = value
+                score_items.append(normalized_obj)
     else:
         # Fallback to older parsing method
         score_items = []
@@ -244,29 +297,36 @@ def process_subject_fields(subjects):
     all_subjects = [s.split(" (")[0] for s in all_subjects]
     return all_subjects
 
-def generate_relevance_score(
+def filter_papers_by_relevance(
     all_papers,
     query,
     model_name="gpt-3.5-turbo-16k",
     threshold_score=2,
-    num_paper_in_prompt=10,  # Default to 10 papers per prompt for better comparative analysis
-    temperature=0.4,
+    num_paper_in_prompt=8,  # Fixed at 8 papers per prompt as requested
+    temperature=0.3,  # Lower temperature for more consistent relevancy scoring
     top_p=1.0,
-    sorting=True
+    max_papers=10  # Try to find at least this many papers that meet the threshold
 ):
-    ans_data = []
-    request_idx = 1
-    hallucination = False
-    for id in tqdm.tqdm(range(0, len(all_papers), num_paper_in_prompt)):
-        prompt_papers = all_papers[id:id+num_paper_in_prompt]
-        # only sampling from the seed tasks
-        prompt = encode_prompt(query, prompt_papers)
+    """
+    Stage 1: Filter papers by relevance using only title and abstract
+    Returns only papers that meet or exceed the threshold score
+    """
+    filtered_papers = []
+    print(f"\n===== STAGE 1: FILTERING PAPERS BY RELEVANCE (THRESHOLD >= {threshold_score}) =====")
+    
+    for id in tqdm.tqdm(range(0, len(all_papers), num_paper_in_prompt), desc="Stage 1: Relevancy filtering"):
+        batch_papers = all_papers[id:id+num_paper_in_prompt]
+        
+        # Create prompt without content for quick relevancy filtering
+        prompt = encode_prompt(query, batch_papers, include_content=False)
+        
         decoding_args = utils.OpenAIDecodingArguments(
             temperature=temperature,
             n=1,
-            max_tokens=1024*num_paper_in_prompt, # The response for each paper should be less than 128 tokens.
+            max_tokens=512,  # Less tokens needed for just scoring
             top_p=top_p,
         )
+        
         request_start = time.time()
         response = utils.openai_completion(
             prompts=prompt,
@@ -275,21 +335,255 @@ def generate_relevance_score(
             decoding_args=decoding_args,
             logit_bias={"100257": -100},  # prevent the <|endoftext|> from being generated
         )
-        print ("response", response['message']['content'])
+        
         request_duration = time.time() - request_start
-
+        print(f"Stage 1 batch took {request_duration:.2f}s")
+        
+        # Extract just the relevancy scores
         process_start = time.time()
-        batch_data, hallu = post_process_chat_gpt_response(prompt_papers, response, threshold_score=threshold_score)
-        hallucination = hallucination or hallu
-        ans_data.extend(batch_data)
-
-        print(f"Request {request_idx+1} took {request_duration:.2f}s")
+        batch_data, _ = post_process_chat_gpt_response(
+            batch_papers, 
+            response, 
+            threshold_score=0  # Don't filter yet, we want all scores
+        )
+        
+        # Keep only papers that meet or exceed the threshold
+        # Make sure we have the same number of scores as papers
+        if len(batch_data) != len(batch_papers):
+            print(f"WARNING: Mismatch between batch_data ({len(batch_data)}) and batch_papers ({len(batch_papers)})")
+            # If we have different counts, we need to match papers to scores
+            # This handles cases where not all papers got scores
+            
+            # Create a map of titles to papers for easier lookup
+            title_to_paper = {p["title"]: p for p in batch_papers}
+            
+            # Match scores to papers
+            for paper in batch_data:
+                if "title" in paper and paper["title"] in title_to_paper:
+                    # Found a match by title
+                    relevancy_score = paper.get("Relevancy score", 0)
+                    if isinstance(relevancy_score, str):
+                        try:
+                            if '/' in relevancy_score:
+                                relevancy_score = int(relevancy_score.split('/')[0])
+                            else:
+                                relevancy_score = int(relevancy_score)
+                        except (ValueError, TypeError):
+                            relevancy_score = 0
+                            
+                    if relevancy_score >= threshold_score:
+                        print(f"PASSED: Paper '{paper['title'][:50]}...' with score {relevancy_score}")
+                        filtered_papers.append(paper)
+                    else:
+                        print(f"FILTERED OUT: Paper '{paper['title'][:50]}...' with score {relevancy_score}")
+        else:
+            # We have the expected number of scores
+            for paper in batch_data:
+                relevancy_score = paper.get("Relevancy score", 0)
+                if isinstance(relevancy_score, str):
+                    try:
+                        if '/' in relevancy_score:
+                            relevancy_score = int(relevancy_score.split('/')[0])
+                        else:
+                            relevancy_score = int(relevancy_score)
+                    except (ValueError, TypeError):
+                        relevancy_score = 0
+                        
+                if relevancy_score >= threshold_score:
+                    print(f"PASSED: Paper '{paper['title'][:50]}...' with score {relevancy_score}")
+                    filtered_papers.append(paper)
+                else:
+                    print(f"FILTERED OUT: Paper '{paper['title'][:50]}...' with score {relevancy_score}")
+                
         print(f"Post-processing took {time.time() - process_start:.2f}s")
-
-    if sorting:
-        ans_data = sorted(ans_data, key=lambda x: int(x["Relevancy score"]), reverse=True)
+        print(f"Filtered papers so far: {len(filtered_papers)} out of {id + len(batch_papers)}")
     
-    return ans_data, hallucination
+    print(f"\nStage 1 complete: {len(filtered_papers)} papers met the threshold of {threshold_score} out of {len(all_papers)}")
+    
+    # If we didn't find enough papers, adjust threshold downward and include more
+    if len(filtered_papers) < max_papers and threshold_score > 1:
+        # Find the highest-scored papers that didn't meet the threshold
+        remaining_scores = {}
+        for paper in all_papers:
+            if paper not in filtered_papers:
+                score = paper.get("Relevancy score", 0)
+                if isinstance(score, str):
+                    try:
+                        score = int(score)
+                    except (ValueError, TypeError):
+                        score = 0
+                remaining_scores[paper] = score
+        
+        # Sort the remaining papers by score (descending)
+        sorted_papers = sorted(remaining_scores.keys(), key=lambda p: remaining_scores[p], reverse=True)
+        
+        # Add the highest-scored papers until we reach max_papers or run out of papers
+        papers_to_add = sorted_papers[:max_papers - len(filtered_papers)]
+        for paper in papers_to_add:
+            score = remaining_scores[paper]
+            print(f"Adding paper '{paper['title'][:50]}...' with score {score} (below threshold) to meet minimum paper count")
+            filtered_papers.append(paper)
+        
+        print(f"Added {len(papers_to_add)} papers below threshold to reach {len(filtered_papers)} total papers")
+    
+    return filtered_papers
+
+
+def analyze_papers_in_depth(
+    filtered_papers,
+    query,
+    model_name="gemini-1.5-flash",  # Use Gemini by default for detailed analysis
+    num_paper_in_prompt=5,  # Smaller batches for detailed analysis
+    temperature=0.5,
+    top_p=1.0
+):
+    """
+    Stage 2: Analyze papers in depth, including content analysis
+    Only called for papers that passed the relevancy threshold
+    """
+    analyzed_papers = []
+    print(f"\n===== STAGE 2: DETAILED ANALYSIS OF {len(filtered_papers)} PAPERS =====")
+    
+    # If we're using Gemini, use their API instead
+    if "gemini" in model_name:
+        print(f"Using Gemini for detailed analysis: {model_name}")
+        from gemini_utils import analyze_papers_with_gemini
+        return analyze_papers_with_gemini(
+            filtered_papers,
+            query=query,
+            model_name=model_name
+        )
+    
+    # Otherwise use OpenAI
+    for id in tqdm.tqdm(range(0, len(filtered_papers), num_paper_in_prompt), desc="Stage 2: Detailed analysis"):
+        batch_papers = filtered_papers[id:id+num_paper_in_prompt]
+        
+        # Create prompt with content for detailed analysis
+        prompt = encode_prompt(query, batch_papers, include_content=True)
+        
+        decoding_args = utils.OpenAIDecodingArguments(
+            temperature=temperature,
+            n=1,
+            max_tokens=1024*num_paper_in_prompt,
+            top_p=top_p,
+        )
+        
+        request_start = time.time()
+        response = utils.openai_completion(
+            prompts=prompt,
+            model_name=model_name,
+            batch_size=1,
+            decoding_args=decoding_args,
+            logit_bias={"100257": -100},  # prevent the <|endoftext|> from being generated
+        )
+        
+        request_duration = time.time() - request_start
+        print(f"Stage 2 batch took {request_duration:.2f}s")
+        
+        # Process the detailed analysis
+        process_start = time.time()
+        batch_data, _ = post_process_chat_gpt_response(batch_papers, response, threshold_score=0)
+        analyzed_papers.extend(batch_data)
+        
+        print(f"Post-processing took {time.time() - process_start:.2f}s")
+        print(f"Analyzed papers so far: {len(analyzed_papers)} out of {len(filtered_papers)}")
+    
+    print(f"\nStage 2 complete: {len(analyzed_papers)} papers fully analyzed")
+    return analyzed_papers
+
+
+def generate_relevance_score(
+    all_papers,
+    query,
+    model_name="gpt-3.5-turbo-16k",
+    threshold_score=2,
+    num_paper_in_prompt=8,  # Fixed at 8 papers per prompt
+    temperature=0.4,
+    top_p=1.0,
+    sorting=True,
+    stage2_model="gemini-1.5-flash",  # Model to use for Stage 2
+    min_papers=10  # Minimum number of papers to return
+):
+    """
+    Two-stage paper processing:
+    1. Filter papers by relevance using OpenAI (fast, based on title/abstract)
+    2. Analyze relevant papers in depth using Gemini (detailed, includes content)
+    """
+    # Stage 1: Filter by relevance (OpenAI)
+    filtered_papers = filter_papers_by_relevance(
+        all_papers,
+        query,
+        model_name=model_name,
+        threshold_score=threshold_score,
+        num_paper_in_prompt=num_paper_in_prompt,
+        temperature=temperature,
+        top_p=top_p,
+        max_papers=min_papers  # Ensure we get at least this many papers
+    )
+    
+    # If no papers passed the threshold, return empty results
+    if len(filtered_papers) == 0:
+        print("No papers passed the relevance threshold. Returning empty results.")
+        return [], False
+    
+    # Before Stage 2: Extract HTML content for papers that passed the filter
+    print(f"\n===== EXTRACTING HTML CONTENT FOR {len(filtered_papers)} PAPERS =====")
+    for i, paper in enumerate(filtered_papers):
+        try:
+            # Extract HTML content from the paper URL
+            from download_new_papers import crawl_html_version
+            
+            # Get the paper ID from the main_page URL
+            paper_id = None
+            main_page = paper.get("main_page", "")
+            if main_page:
+                # Extract paper ID (e.g., 2401.12345)
+                import re
+                id_match = re.search(r'/abs/([0-9v.]+)', main_page)
+                if id_match:
+                    paper_id = id_match.group(1)
+            
+            if paper_id:
+                # Construct HTML link
+                html_link = f"https://arxiv.org/html/{paper_id}"
+                print(f"Fetching HTML content for paper {i+1}/{len(filtered_papers)}: {paper['title'][:50]}...")
+                print(f"HTML link: {html_link}")
+                
+                # Try to get content
+                content = crawl_html_version(html_link)
+                if content and len(content) > 100 and "Error accessing HTML" not in content:
+                    paper["content"] = content
+                    print(f"✅ Successfully extracted {len(content)} characters of content")
+                else:
+                    # If HTML version fails, use the abstract + more details
+                    paper["content"] = f"{paper.get('abstract', '')} {paper.get('title', '')}"
+                    print(f"⚠️ Failed to extract content, using abstract instead. Error: {content[:100]}...")
+            else:
+                print(f"⚠️ Couldn't parse paper ID from URL: {main_page}")
+                paper["content"] = paper.get("abstract", "No content available")
+                
+        except Exception as e:
+            print(f"❌ Error extracting HTML content: {str(e)}")
+            # Fallback to using the abstract
+            paper["content"] = paper.get("abstract", "No content available")
+            
+    print(f"Content extraction complete for {len(filtered_papers)} papers.")
+    
+    # Stage 2: In-depth analysis (Gemini or fallback to OpenAI)
+    analyzed_papers = analyze_papers_in_depth(
+        filtered_papers,
+        query,
+        model_name=stage2_model,
+        num_paper_in_prompt=max(1, num_paper_in_prompt // 2),  # Smaller batches for detailed analysis
+        temperature=temperature,
+        top_p=top_p
+    )
+    
+    # Sort by relevancy score if requested
+    if sorting and analyzed_papers:
+        analyzed_papers = sorted(analyzed_papers, key=lambda x: int(x.get("Relevancy score", 0)), reverse=True)
+    
+    return analyzed_papers, False  # No hallucination tracking in two-stage system
 
 def run_all_day_paper(
     query={"interest":"Computer Science", "subjects":["Machine Learning", "Computation and Language", "Artificial Intelligence", "Information Retrieval"]},
