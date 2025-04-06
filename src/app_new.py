@@ -428,8 +428,9 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             else:
                 interpretability_info = ""
                 
-            # Generate HTML report
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
+            # Generate HTML report with topic
+            actual_topic = topic
+            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
             
             # Create summary texts for display
             summary_texts = []
@@ -447,8 +448,9 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             result_text = cluster_summary + "\n\n".join(summary_texts) + interpretability_info
             return result_text + f"\n\nHTML report saved to: {html_file}"
         else:
-            # Generate HTML report
-            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {topic} papers")
+            # Generate HTML report with topic
+            actual_topic = topic
+            html_file = generate_html_report(relevancy, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
             
             # Create summary texts for display
             summary_texts = []
@@ -466,8 +468,9 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             result_text = "\n\n".join(summary_texts)
             return result_text + f"\n\nHTML report saved to: {html_file}"
     else:
-        # Generate HTML report for basic results
-        html_file = generate_html_report(papers, title=f"ArXiv Digest: {topic} papers")
+        # Generate HTML report for basic results with topic
+        actual_topic = topic
+        html_file = generate_html_report(papers, title=f"ArXiv Digest: {actual_topic} papers", topic=actual_topic)
         result_text = "\n\n".join(f"Title: {paper['title']}\nAuthors: {paper['authors']}" for paper in papers)
         return result_text + f"\n\nHTML report saved to: {html_file}"
 
@@ -705,6 +708,12 @@ def test(email, topic, physics_topic, categories, interest, key,
     else:
         body = "<br><br>".join([f'Title: <a href="{paper["main_page"]}">{paper["title"]}</a><br>Authors: {paper["authors"]}' for paper in papers])
     
+    # Generate HTML report file with topic
+    actual_topic = topic
+    html_file = generate_html_report(relevancy if interest else papers, 
+                                   title=f"ArXiv Digest: {actual_topic} papers", 
+                                   topic=actual_topic)
+    
     # Send email
     sg = sendgrid.SendGridAPIClient(api_key=key)
     from_email = Email(email)
@@ -713,10 +722,6 @@ def test(email, topic, physics_topic, categories, interest, key,
     content = Content("text/html", body)
     mail = Mail(from_email, to_email, subject, content)
     mail_json = mail.get()
-
-    # Generate HTML report file
-    html_file = generate_html_report(relevancy if interest else papers, 
-                                   title=f"ArXiv Digest: {topic} papers")
     
     # Send an HTTP POST request to /mail/send
     response = sg.client.mail.send.post(request_body=mail_json)

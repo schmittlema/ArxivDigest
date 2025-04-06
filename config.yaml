@@ -21,8 +21,10 @@ threshold: 7
 # This can be empty, which just return a full list of papers with no judgement or filtering,
 # in whatever order arXiv responds with.
 interest: |
-  1. Large language model pretraining and finetunings
-  2. Multimodal machine learning
-  3. RAGs, Information retrieval
-  4. Optimization of LLM and GenAI
-  5. Do not care about specific application, for example, information extraction, summarization, etc.
+  1. AI alignment and AI safety
+  2. Mechanistic interpretability and explainable AI
+  3. Large language model under pressure
+  4. AI Red teaming, deception and misalignment
+  5. RAGs, Information retrieval
+  6. Optimization of LLM and GenAI
+  7. Do not care about specific application, for example, information extraction, summarization, etc.

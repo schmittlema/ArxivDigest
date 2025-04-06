@@ -1,7 +1,6 @@
 """
 run:
 python -m relevancy run_all_day_paper \
-  --output_dir ./data \
   --model_name="gpt-3.5-turbo-16k" \
 """
 import time
@@ -15,6 +14,8 @@ from datetime import datetime
 import numpy as np
 import tqdm
 import utils
+
+from paths import DATA_DIR
 
 
 def encode_prompt(query, prompt_papers):
@@ -46,7 +47,25 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
     selected_data = []
     if response is None:
         return []
-    json_items = response['message']['content'].replace("\n\n", "\n").split("\n")
+        
+    # Handle both old and new API response formats
+    if isinstance(response, dict) and 'message' in response:
+        # Old API format
+        content = response['message']['content']
+    elif hasattr(response, 'choices') and len(response.choices) > 0:
+        # New API format (OpenAI Client)
+        content = response.choices[0].message.content
+    else:
+        # Fallback to dictionary access
+        try:
+            content = response.get('choices', [{}])[0].get('message', {}).get('content', '')
+        except Exception:
+            content = ''
+            
+    if not content:
+        return [], False
+        
+    json_items = content.replace("\n\n", "\n").split("\n")
     pattern = r"^\d+\. |\\"
     import pprint
 
@@ -55,21 +74,12 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
             return json.loads(re.sub(pattern, "", line))
         except json.JSONDecodeError:
             return None
+            
     score_items = []
     try:
-        # score_items = [
-        #     json.loads(re.sub(pattern, "", line))
-        #     for line in json_items if (is_json(line) and "relevancy score" in line.lower())]
         for line in json_items:
             if is_json(line) and "relevancy score" in line.lower():
                 score_items.append(json.loads(re.sub(pattern, "", line)))
-            #elif
-
-        # score_items = [
-        #     loaded_json
-        #     for line in json_items if (is_json(line) and "relevancy score" in line.lower())
-        #     for loaded_json in [try_loads(line)] if loaded_json is not None
-        # ]
     except Exception as e:
         pprint.pprint([re.sub(pattern, "", line) for line in json_items if "relevancy score" in line.lower()])
         try:
@@ -78,6 +88,7 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
             score_items = []
         print(e)
         raise RuntimeError("failed")
+        
     pprint.pprint(score_items)
     scores = []
     for item in score_items:
@@ -86,6 +97,7 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
             scores.append(int(temp.split("/")[0]))
         else:
             scores.append(int(temp))
+            
     if len(score_items) != len(paper_data):
         score_items = score_items[:len(paper_data)]
         hallucination = True
@@ -105,6 +117,7 @@ def post_process_chat_gpt_response(paper_data, response, threshold_score=7):
             output_str += str(key) + ": " + str(value) + "\n"
         paper_data[idx]['summarized_text'] = output_str
         selected_data.append(paper_data[idx])
+        
     return selected_data, hallucination
 
 
@@ -167,7 +180,6 @@ def generate_relevance_score(
 def run_all_day_paper(
     query={"interest":"Computer Science", "subjects":["Machine Learning", "Computation and Language", "Artificial Intelligence", "Information Retrieval"]},
     date=None,
-    data_dir="../data",
     model_name="gpt-3.5-turbo-16k",
     threshold_score=7,
     num_paper_in_prompt=2,
@@ -179,7 +191,8 @@ def run_all_day_paper(
         # string format such as Wed, 10 May 23
     print ("the date for the arxiv data is: ", date)
 
-    all_papers = [json.loads(l) for l in open(f"{data_dir}/{date}.jsonl", "r")]
+    file_path = os.path.join(DATA_DIR, f"{date}.jsonl")
+    all_papers = [json.loads(l) for l in open(file_path, "r")]
     print (f"We found {len(all_papers)}.")
 
     all_papers_in_subjects = [
@@ -188,7 +201,8 @@ def run_all_day_paper(
     ]
     print(f"After filtering subjects, we have {len(all_papers_in_subjects)} papers left.")
     ans_data = generate_relevance_score(all_papers_in_subjects, query, model_name, threshold_score, num_paper_in_prompt, temperature, top_p)
-    utils.write_ans_to_file(ans_data, date, output_dir="../outputs")
+    from paths import DIGEST_DIR
+    utils.write_ans_to_file(ans_data, date, output_dir=DIGEST_DIR)
     return ans_data
 
 
