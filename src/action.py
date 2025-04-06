@@ -10,7 +10,9 @@ from relevancy import generate_relevance_score, process_subject_fields
 from download_new_papers import get_papers
 from datetime import date
 
+import ssl
 
+ssl._create_default_https_context = ssl._create_stdlib_context
 
 # Hackathon quality code. Don't judge too harshly.
 # Feel free to submit pull requests to improve the code.
