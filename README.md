@@ -1,4 +1,4 @@
-<p align="center"><img src="./readme_images/banner.png" width=500 /></p>
+<p align="center"><img src="./readme_images/main_banner.png" width=500 /></p>
 
 # ArXiv Digest (Enhanced Edition)
 
@@ -37,6 +37,8 @@ This repository provides an enhanced daily digest for newly published arXiv pape
 - **Robust JSON Parsing**: Reliable extraction of analysis results from LLM responses
 - **Standardized Directory Structure**: Organized codebase with `/src`, `/data`, and `/digest` directories
 - **Improved Web UI**: Clean Gradio interface with dynamic topic selection and error handling
+
+![](./readme_images/UIarxiv.png)
 
 ## 🚀 Quick Start
 

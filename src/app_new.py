@@ -896,8 +896,45 @@ def register_gemini_token(token):
 def register_anthropic_token(token):
     model_manager.register_anthropic(token)
 
-with gr.Blocks() as demo:
+# Custom CSS
+custom_css = """
+#main-title h1 {
+    text-align: center;
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+.banner-image {
+    display: flex;
+    justify-content: center;
+    margin: 0 auto;
+}
+"""
+
+with gr.Blocks(css=custom_css) as demo:
     with gr.Column():
+        # Title first, then banner image
+        with gr.Row():
+            gr.Markdown("""
+            # ArXiv Digest
+            """, elem_id="main-title")
+            
+        # Smaller banner image, centered
+        with gr.Row(elem_classes="banner-image"):
+            gr.Image(value="./readme_images/main_banner.png", show_label=False, width=250)
+            
+        with gr.Row():
+            gr.Markdown("""
+            **Personalized arXiv Paper Recommendations with LLMs**
+            
+            This app helps you discover relevant academic papers from arXiv based on your research interests. 
+            It uses a two-stage processing system: first filtering papers for relevance, then analyzing them in depth.
+            
+            [GitHub Repository](https://github.com/linhkid/ArxivDigest-extra) • [Report an Issue](https://github.com/linhkid/ArxivDigest-extra/issues)
+            """)
+            
         with gr.Tabs():
             with gr.TabItem("OpenAI"):
                 openai_token = gr.Textbox(label="OpenAI API Key", type="password")
@@ -998,8 +1035,15 @@ with gr.Blocks() as demo:
             email = gr.Textbox(label="Email address", type="email", placeholder="", visible=False)
             sendgrid_token = gr.Textbox(label="SendGrid API Key", type="password", visible=False)
             
-        sample_btn = gr.Button("Generate Digest")
-        sample_output = gr.Textbox(label="Results for your configuration.", info="For runtime purposes, this is only done on a small subset of recent papers in the topic you have selected. Papers will not be filtered by relevancy, only sorted on a scale of 1-10.")
+        with gr.Row():
+            sample_btn = gr.Button("Generate Digest", variant="primary", scale=2)
+        
+        with gr.Row():
+            sample_output = gr.Textbox(
+                label="Results", 
+                info="Papers are first filtered by relevance score, then analyzed in depth. HTML reports are saved to the 'digest' folder.",
+                show_label=True
+            )
         
     # Define all input fields
     all_inputs = [
