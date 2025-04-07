@@ -558,6 +558,7 @@ def generate_relevance_score(
                     # If HTML version fails, use the abstract + more details
                     paper["content"] = f"{paper.get('abstract', '')} {paper.get('title', '')}"
                     print(f"⚠️ Failed to extract content, using abstract instead. Error: {content[:100]}...")
+                time.sleep(3)
             else:
                 print(f"⚠️ Couldn't parse paper ID from URL: {main_page}")
                 paper["content"] = paper.get("abstract", "No content available")

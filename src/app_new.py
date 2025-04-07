@@ -288,11 +288,14 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
                 padding: 15px; 
                 border: 1px solid #eee; 
                 border-radius: 5px; 
-                max-width: 250px; 
+                max-width: 250px;
+                max-height: 80vh; /* Limit height to 80% of viewport height */
                 box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                 z-index: 100;
                 transition: transform 0.3s ease;
                 transform: translateX(85%);
+                overflow-y: auto; /* Enable vertical scrolling */
+                overflow-x: hidden; /* Hide horizontal scrollbar */
             }}
             .paper-navigation:hover {{ 
                 transform: translateX(0);
@@ -304,6 +307,9 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
                 top: 15px;
                 font-weight: bold;
                 color: #2980b9;
+                background-color: white; /* Ensure text is visible */
+                padding: 2px 5px;
+                z-index: 2; /* Keep above scrolling content */
             }}
             .paper-navigation ul {{ list-style-type: none; padding: 0; margin: 20px 0 0 0; }}
             .paper-navigation li {{ margin: 5px 0; }}
@@ -321,7 +327,7 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
             <p>Generated on {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
             <p>Found {len(papers)} papers</p>
             <p>Topics: {topic or "All"}</p>
-            <p>Threshold: {config.get("threshold", "Not specified")}</p>
+            <p>Threshold: {query.get("threshold", config.get("threshold", "Not specified"))}</p>
         </div>
         
         <div class="interests">
@@ -530,13 +536,13 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
     return html_file
 
 def sample(email, topic, physics_topic, categories, interest, use_openai, use_gemini, use_anthropic, 
-           openai_model, gemini_model, anthropic_model, special_analysis, custom_threshold, custom_batch_size, custom_batch_number, 
+           openai_model, gemini_model, anthropic_model, special_analysis, threshold_from_ui, custom_batch_size, custom_batch_number, 
            custom_prompt_batch_size, mechanistic_interpretability, technical_ai_safety, 
            design_automation, design_reference_paper, design_techniques, design_categories):
     print(f"\n===== STARTING TWO-STAGE PAPER ANALYSIS =====")
     print(f"Topic: {topic}")
     print(f"Research interests: {interest[:100]}...")
-    print(f"Using threshold: {custom_threshold}")
+    print(f"Using threshold: {threshold_from_ui}")
     print(f"Stage 1 (Filtering): OpenAI {openai_model}")
     print(f"Stage 2 (Analysis): {'Gemini ' + gemini_model if use_gemini else 'OpenAI ' + openai_model}")
     print(f"UI Batch size: {custom_batch_size} papers")
@@ -651,7 +657,7 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                     papers,
                     query={"interest": interest},
                     model_name=openai_model,
-                    threshold_score=int(custom_threshold),  # Apply threshold immediately
+                    threshold_score=int(threshold_from_ui),  # Apply threshold from UI slider
                     num_paper_in_prompt=int(custom_prompt_batch_size),  # Use the user-specified prompt batch size
                     stage2_model=gemini_model if use_gemini else "gpt-4-turbo"  # Use Gemini for stage 2 if selected
                 )
@@ -709,7 +715,7 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
         
         # Papers are already filtered by threshold during LLM response processing
         # This is now just a safety check to ensure we didn't miss any
-        threshold_value = int(custom_threshold) if custom_threshold is not None else config.get("threshold", 2)
+        threshold_value = int(threshold_from_ui) if threshold_from_ui is not None else config.get("threshold", 2)
         print(f"Using relevancy threshold: {threshold_value}")
         print(f"Papers before final threshold check: {len(relevancy)}")
         relevancy = filter_papers_by_threshold(relevancy, threshold_value)
@@ -810,7 +816,7 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                 relevancy, 
                 title=f"ArXiv Digest: {topic} papers",
                 topic=topic,
-                query={"interest": interest}
+                query={"interest": interest, "threshold": threshold_value}
             )
             
             # Create summary texts for display
@@ -834,7 +840,7 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
                 relevancy, 
                 title=f"ArXiv Digest: {topic} papers",
                 topic=topic,
-                query={"interest": interest}
+                query={"interest": interest, "threshold": threshold_value}
             )
             
             # Create summary texts for display
@@ -858,7 +864,7 @@ def sample(email, topic, physics_topic, categories, interest, use_openai, use_ge
             papers, 
             title=f"ArXiv Digest: {topic} papers",
             topic=topic,
-            query={"interest": interest}
+            query={"interest": interest, "threshold": threshold_from_ui if "threshold_from_ui" in locals() else config.get("threshold", 2)}
         )
         result_text = "\n\n".join(f"Title: {paper['title']}\nAuthors: {paper['authors']}" for paper in papers)
         return result_text + f"\n\nHTML report saved to: {html_file}"
