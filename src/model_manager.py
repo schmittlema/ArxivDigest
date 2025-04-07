@@ -145,7 +145,7 @@ class ModelManager:
         default_models = {
             ModelProvider.OPENAI: "gpt-3.5-turbo-16k",
             ModelProvider.GEMINI: "gemini-1.5-flash",
-            ModelProvider.ANTHROPIC: "claude-3-opus-20240229"
+            ModelProvider.ANTHROPIC: "claude-3.5-sonnet-20240620"
         }
         
         # Use default models if not specified
@@ -195,8 +195,20 @@ class ModelManager:
         
         # Add Anthropic/Claude analysis if available
         if ModelProvider.ANTHROPIC in providers and self.is_provider_available(ModelProvider.ANTHROPIC):
-            # TODO: Implement Anthropic/Claude analysis
-            pass
+            # Import locally to avoid circular imports
+            from anthropic_utils import analyze_papers_with_claude
+            
+            try:
+                if not analyzed_papers:  # If previous analyses failed or were not used
+                    analyzed_papers = papers
+                
+                analyzed_papers = analyze_papers_with_claude(
+                    analyzed_papers,
+                    query=query,
+                    model_name=model_names[ModelProvider.ANTHROPIC]
+                )
+            except Exception as e:
+                logger.error(f"Error analyzing papers with Claude: {e}")
         
         return analyzed_papers, hallucination
 
@@ -235,9 +247,9 @@ class ModelManager:
         if not model_name:
             # Use more powerful models for specialized analysis
             default_models = {
-                ModelProvider.OPENAI: "gpt-4",
+                ModelProvider.OPENAI: "gpt-4o",
                 ModelProvider.GEMINI: "gemini-2.0-flash",
-                ModelProvider.ANTHROPIC: "claude-3-opus-20240229"
+                ModelProvider.ANTHROPIC: "claude-3.5-sonnet-20240620"
             }
             model_name = default_models.get(provider)
             
@@ -359,9 +371,9 @@ class ModelManager:
         if not model_name:
             # Use appropriate models for design analysis
             default_models = {
-                ModelProvider.OPENAI: "gpt-4",
+                ModelProvider.OPENAI: "gpt-4o",
                 ModelProvider.GEMINI: "gemini-2.0-flash",
-                ModelProvider.ANTHROPIC: "claude-3-sonnet-20240229"
+                ModelProvider.ANTHROPIC: "claude-3.5-sonnet-20240620"
             }
             model_name = default_models.get(provider)
             

@@ -1,4 +1,4 @@
-<p align="center"><img src="./readme_images/banner.png" width=500 /></p>
+<p align="center"><img src="./readme_images/main_banner.png" width=500 /></p>
 
 # ArXiv Digest (Enhanced Edition)
 
@@ -27,6 +27,8 @@ This repository provides an enhanced daily digest for newly published arXiv pape
 ## ✨ Features
 
 - **Multi-Model Integration**: Support for OpenAI, Gemini, and Claude models for paper analysis
+- **Latest Models**: Support for GPT-4o, GPT-4o mini, Claude 3.5, and other current models
+- **Two-Stage Processing**: Efficient paper analysis with quick filtering followed by detailed analysis
 - **Enhanced Analysis**: Detailed paper breakdowns including key innovations, critical analysis, and practical applications
 - **HTML Report Generation**: Clean, organized reports saved with date-based filenames
 - **Adjustable Relevancy Threshold**: Interactive slider for filtering papers by relevance score
@@ -34,7 +36,9 @@ This repository provides an enhanced daily digest for newly published arXiv pape
 - **Topic Clustering**: Group similar papers using AI-powered clustering (Gemini)
 - **Robust JSON Parsing**: Reliable extraction of analysis results from LLM responses
 - **Standardized Directory Structure**: Organized codebase with `/src`, `/data`, and `/digest` directories
-- **Simplified Web UI**: Clean Gradio interface focused on core paper analysis functionality
+- **Improved Web UI**: Clean Gradio interface with dynamic topic selection and error handling
+
+![](./readme_images/UIarxiv.png)
 
 ## 🚀 Quick Start
 
@@ -48,59 +52,27 @@ This repository creates a personalized daily digest by:
 
 1. **Crawling arXiv** for recent papers in your areas of interest
 2. **Analyzing papers** in-depth using AI models (OpenAI, Gemini, or Claude)
-3. **Scoring relevance** on a scale of 1-10 based on your research interests
-4. **Providing detailed analysis** of each paper, including:
+3. **Two-stage processing** for efficiency:
+   - Stage 1: Quick relevancy filtering using only title and abstract
+   - Stage 2: Detailed analysis of papers that meet the relevancy threshold
+4. **Scoring relevance** on a scale of 1-10 based on your research interests
+5. **Providing detailed analysis** of each paper, including:
    - Key innovations
    - Critical analysis
    - Implementation details
    - Practical applications
    - Related work
-5. **Generating reports** in HTML format with clean organization
-6. Optionally **sending email digests** using SendGrid
+6. **Generating reports** in HTML format with clean organization
 
 ## 🤖 Model Integrations
 
 The system supports three major AI providers:
 
-- **OpenAI GPT** (gpt-3.5-turbo-16k, gpt-4, gpt-4-turbo)
+- **OpenAI GPT** (gpt-3.5-turbo-16k, gpt-4, gpt-4-turbo, gpt-4o, gpt-4o-mini)
 - **Google Gemini** (gemini-1.5-flash, gemini-1.5-pro, gemini-2.0-flash)
-- **Anthropic Claude** (claude-3-haiku, claude-3-sonnet, claude-3-opus)
+- **Anthropic Claude** (claude-3-haiku, claude-3-sonnet, claude-3-opus, claude-3.5-sonnet)
 
 You can use any combination of these models, allowing you to compare results or choose based on your needs.
-
-## 🎨 Design Paper Discovery
-
-A specialized backend module is included for finding papers related to AI/ML for design automation:
-
-- **Design Automation Tool**: Find papers related to design automation, creative AI, and generative design
-- **Categorization**: Automatically sort papers into categories like UI/UX Design, Layout Generation, etc.
-- **Technique Analysis**: Identify papers using specific techniques like GANs, Diffusion Models, LLMs, etc.
-
-While the UI components for design automation have been simplified, you can still access this functionality through the command line or by using the backend directly:
-
-```bash
-# Basic usage
-./find_design_papers.sh
-
-# With keyword filtering
-./find_design_papers.sh --keyword "layout"
-
-# With LLM analysis for comprehensive paper details
-./find_design_papers.sh --analyze
-
-# Customize your research interests for analysis
-./find_design_papers.sh --analyze --interest "I'm looking for papers on UI/UX automation and layout generation with neural networks"
-
-# Advanced usage with all options
-./find_design_papers.sh --days 14 --keyword "diffusion" --analyze --model "gpt-4-turbo"
-
-# Output files include the current date by default:
-# - data/design_papers_diffusion_20250406.json
-# - digest/design_papers_diffusion_20250406.html
-
-# Disable date in filenames if needed
-./find_design_papers.sh --keyword "layout" --no-date
-```
 
 ## 📊 Output Formats
 
@@ -120,8 +92,7 @@ Every HTML report includes:
 
 Example HTML report:
 
-<p align="left"><img src="./readme_images/example_custom_1.png" width=580 /></p>
-
+![](/readme_images/example_report.png)
 ## 💡 Setting Up and Usage
 
 ### Configuration
@@ -165,9 +136,6 @@ To set up automated daily digests:
 2. Update `config.yaml` with your preferences
 3. Set the following secrets in your repository settings:
    - `OPENAI_API_KEY` (and/or `GEMINI_API_KEY` or `ANTHROPIC_API_KEY`)
-   - `SENDGRID_API_KEY` (for email delivery)
-   - `FROM_EMAIL` (must match the email used for your SendGrid key)
-   - `TO_EMAIL` (recipient email)
 4. The GitHub Action will run on schedule or can be triggered manually
 
 ### Running from Command Line
@@ -178,11 +146,8 @@ For advanced users:
 # Regular paper digests with simplified UI
 python src/app_new.py
 
-# Regular paper digests with original UI
-python src/app.py
-
 # Design paper finder
-python -m src.design.find_design_papers --days 7 --analyze
+./src/design/find_design_papers.sh --days 7 --analyze
 ```
 
 ## ⚠️ API Usage Notes
@@ -198,12 +163,12 @@ This tool respects arXiv's robots.txt and implements proper rate limiting. If yo
 The repository is organized as follows:
 
 - `/src` - All Python source code
-  - `app.py` - Original web interface with full feature set
   - `app_new.py` - Simplified interface with improved threshold handling and UI
   - `download_new_papers.py` - arXiv crawler
   - `relevancy.py` - Paper scoring and analysis with robust JSON parsing
   - `model_manager.py` - Multi-model integration
   - `gemini_utils.py` - Gemini API integration
+  - `anthropic_utils.py` - Claude API integration
   - `design/` - Design automation tools
   - `paths.py` - Standardized path handling
 - `/data` - JSON data files (auto-created)
@@ -221,6 +186,10 @@ The repository is organized as follows:
 - [x] Adjustable relevancy threshold with UI slider
 - [x] Robust JSON parsing for reliable LLM response handling
 - [x] Simplified UI focused on core functionality
+- [x] Dynamic topic selection UI with improved error handling
+- [x] Support for newer models (GPT-4o, GPT-4o mini, Claude 3.5)
+- [x] Two-stage paper processing for efficiency (quick filtering followed by detailed analysis)
+- [x] Removed email functionality in favor of local HTML reports
 - [ ] Full PDF content analysis
 - [ ] Author-based ranking and filtering
 - [ ] Fine-tuned open-source model support
