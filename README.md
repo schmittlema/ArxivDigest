@@ -192,7 +192,7 @@ The repository is organized as follows:
 - [x] Removed email functionality in favor of local HTML reports
 - [ ] Full PDF content analysis
 - [ ] Author-based ranking and filtering
-- [ ] Fine-tuned open-source model support
+- [ ] Fine-tuned open-source model support: Ollama, LocalAI...
 
 ## 💁 Contributing
 
