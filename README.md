@@ -92,8 +92,7 @@ Every HTML report includes:
 
 Example HTML report:
 
-<p align="left"><img src="./readme_images/example_custom_1.png" width=580 /></p>
-
+![](/readme_images/example_report.png)
 ## 💡 Setting Up and Usage
 
 ### Configuration
