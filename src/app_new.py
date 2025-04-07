@@ -311,8 +311,12 @@ def generate_html_report(papers, title="ArXiv Digest Results", topic=None, categ
                 padding: 2px 5px;
                 z-index: 2; /* Keep above scrolling content */
             }}
-            .paper-navigation ul {{ list-style-type: none; padding: 0; margin: 20px 0 0 0; }}
-            .paper-navigation li {{ margin: 5px 0; }}
+            .paper-navigation ul {{ 
+                list-style-type: none; 
+                padding: 0 5px 0 0; /* Add padding for scrollbar */
+                margin: 30px 0 0 0; /* Increased margin-top to make room for the "Papers ◄" label */
+            }}
+            .paper-navigation li {{ margin: 8px 0; }}
             .paper-navigation a {{ text-decoration: none; }}
             
             @media print {{
